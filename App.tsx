@@ -1,0 +1,63 @@
+import React from 'react';
+import { BrowserRouter, Routes, Route, Navigate, useNavigate, useParams } from 'react-router-dom';
+import { Toaster } from 'sonner';
+import { Layout } from './components/Layout';
+import { ProposalGenerator } from './components/ProposalGenerator';
+import { FundingSearchPageSimple } from './components/FundingSearchPageSimple';
+import { FundingSearchHybrid } from './components/FundingSearchHybrid';
+import { PartnersPage } from './components/PartnersPage';
+import { SavedProposalsPage } from './components/SavedProposalsPage';
+import { SettingsPage } from './components/SettingsPage';
+import { ProposalViewerPage } from './components/ProposalViewerPage';
+import { PartnerEditPage } from './components/PartnerEditPage';
+
+// Wrapper components to handle navigation props
+const ProposalGeneratorWrapper = () => {
+    const navigate = useNavigate();
+    return <ProposalGenerator onViewProposal={(id) => navigate(`/proposals/${id}`)} />;
+};
+
+const PartnersPageWrapper = () => {
+    const navigate = useNavigate();
+    return <PartnersPage onEditPartner={(id) => navigate(`/partners/${id}`)} />;
+};
+
+const SavedProposalsPageWrapper = () => {
+    const navigate = useNavigate();
+    return <SavedProposalsPage onViewProposal={(id) => navigate(`/proposals/${id}`)} />;
+};
+
+const PartnerEditPageWrapper = () => {
+    const navigate = useNavigate();
+    const { id } = useParams();
+    return <PartnerEditPage partnerId={id} onBack={() => navigate('/partners')} />;
+};
+
+const ProposalViewerPageWrapper = () => {
+    const navigate = useNavigate();
+    const { id } = useParams();
+    return <ProposalViewerPage proposalId={id} onBack={() => navigate('/saved')} />;
+};
+
+function App() {
+    return (
+        <BrowserRouter>
+            <Toaster position="top-right" theme="dark" />
+            <Routes>
+                <Route element={<Layout />}>
+                    <Route path="/" element={<ProposalGeneratorWrapper />} />
+                    <Route path="/funding" element={<FundingSearchPageSimple />} />
+                    <Route path="/funding-hybrid" element={<FundingSearchHybrid />} />
+                    <Route path="/partners" element={<PartnersPageWrapper />} />
+                    <Route path="/partners/:id" element={<PartnerEditPageWrapper />} />
+                    <Route path="/saved" element={<SavedProposalsPageWrapper />} />
+                    <Route path="/proposals/:id" element={<ProposalViewerPageWrapper />} />
+                    <Route path="/settings" element={<SettingsPage />} />
+                    <Route path="*" element={<Navigate to="/" replace />} />
+                </Route>
+            </Routes>
+        </BrowserRouter>
+    );
+}
+
+export default App;

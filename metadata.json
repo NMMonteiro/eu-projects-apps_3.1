@@ -1,0 +1,5 @@
+{
+  "name": "AI Proposal Generator V2",
+  "description": "A professional tool that transforms funding call URLs into comprehensive proposals using Google Gemini AI.",
+  "requestFramePermissions": []
+}

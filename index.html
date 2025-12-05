@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Proposal Generator</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            background: '#1a1b26', // Tokyo Night Background
+            foreground: '#a9b1d6', // Tokyo Night Foreground
+            card: {
+              DEFAULT: 'rgba(26, 27, 38, 0.8)', // #1a1b26 with opacity
+              foreground: '#a9b1d6'
+            },
+            popover: {
+              DEFAULT: '#1a1b26',
+              foreground: '#a9b1d6'
+            },
+            primary: {
+              DEFAULT: '#7aa2f7', // Tokyo Night Blue
+              foreground: '#1a1b26'
+            },
+            secondary: {
+              DEFAULT: '#24283b', // Tokyo Night Storm/Surface
+              foreground: '#a9b1d6'
+            },
+            muted: {
+              DEFAULT: '#565f89', // Tokyo Night Comment/Muted
+              foreground: '#a9b1d6'
+            },
+            accent: {
+              DEFAULT: '#bb9af7', // Tokyo Night Purple
+              foreground: '#1a1b26'
+            },
+            destructive: {
+              DEFAULT: '#f7768e', // Tokyo Night Red
+              foreground: '#1a1b26'
+            },
+            border: 'rgba(86, 95, 137, 0.2)', // #565f89 with opacity
+            input: 'rgba(86, 95, 137, 0.2)',
+            ring: '#7aa2f7',
+          },
+          borderRadius: {
+            lg: '0.5rem',
+            md: 'calc(0.5rem - 2px)',
+            sm: 'calc(0.5rem - 4px)',
+          },
+          fontFamily: {
+            sans: ['Inter', 'sans-serif'],
+          },
+        }
+      }
+    }
+  </script>
+</head>
+
+<body class="bg-[#1a1b26] text-[#a9b1d6] antialiased font-light selection:bg-primary/30">
+  <div id="root"></div>
+  <script type="module" src="/index.tsx"></script>
+</body>
+
+</html>
