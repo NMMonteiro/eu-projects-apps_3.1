@@ -172,13 +172,25 @@ Return ONLY valid JSON, no other text.`;
 
         // ===== PHASE 3: GENERATE PROPOSAL =====
         if (path.includes('/generate-proposal') && req.method === 'POST') {
-            const { idea, summary, constraints, selectedPartners = [], userPrompt } = await req.json();
+            const { idea, summary, constraints, selectedPartners = [], userPrompt, fundingSchemeId } = await req.json();
 
             // Load partner details if provided
             const partners = [];
             for (const partnerId of selectedPartners) {
                 const partner = await KV.get(`partner:${partnerId}`);
                 if (partner) partners.push(partner);
+            }
+
+            // Load funding scheme if selected
+            let fundingScheme = null;
+            if (fundingSchemeId) {
+                const supabase = getSupabaseClient();
+                const { data } = await supabase
+                    .from('funding_schemes')
+                    .select('*')
+                    .eq('id', fundingSchemeId)
+                    .single();
+                fundingScheme = data;
             }
 
             const ai = getAI();
@@ -189,12 +201,13 @@ Return ONLY valid JSON, no other text.`;
                 summary,
                 constraints,
                 partners,
-                userPrompt
+                userPrompt,
+                fundingScheme
             );
 
             const result = await model.generateContent(prompt);
             const text = result.response.text();
-            const proposal = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
+            let proposal = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
 
             // Add metadata
             proposal.id = `proposal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -202,6 +215,15 @@ Return ONLY valid JSON, no other text.`;
             proposal.generatedAt = new Date().toISOString();
             proposal.savedAt = new Date().toISOString();
             proposal.updatedAt = new Date().toISOString();
+
+            // Add funding scheme metadata
+            if (fundingSchemeId) {
+                proposal.funding_scheme_id = fundingSchemeId;
+            }
+            if (proposal.dynamicSections) {
+                proposal.dynamic_sections = proposal.dynamicSections; // Normalize key
+                delete proposal.dynamicSections;
+            }
 
             // Initialize settings with constraints
             const customParams = [];
@@ -217,6 +239,9 @@ Return ONLY valid JSON, no other text.`;
 
             // Auto-save
             await KV.set(proposal.id, proposal);
+
+            // Also save to Supabase "proposals" table for backup/persistence if needed
+            // (Optional improvement for later, keeping KV consistency for now)
 
             return new Response(
                 JSON.stringify(proposal),

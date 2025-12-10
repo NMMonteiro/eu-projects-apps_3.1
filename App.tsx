@@ -11,6 +11,7 @@ import { SettingsPage } from './components/SettingsPage';
 import { ProposalViewerPage } from './components/ProposalViewerPage';
 import { PartnerEditPage } from './components/PartnerEditPage';
 import { FundingSchemeAdminPage } from './components/FundingSchemeAdminPage';
+import { TestExportPage } from './components/TestExportPage';
 
 // Wrapper components to handle navigation props
 const ProposalGeneratorWrapper = () => {
@@ -55,6 +56,7 @@ function App() {
                     <Route path="/proposals/:id" element={<ProposalViewerPageWrapper />} />
                     <Route path="/settings" element={<SettingsPage />} />
                     <Route path="/admin/funding-schemes" element={<FundingSchemeAdminPage />} />
+                    <Route path="/test-export" element={<TestExportPage />} />
                     <Route path="*" element={<Navigate to="/" replace />} />
                 </Route>
             </Routes>

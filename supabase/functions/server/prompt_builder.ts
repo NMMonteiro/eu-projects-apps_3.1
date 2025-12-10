@@ -136,7 +136,8 @@ export function buildProposalPrompt(
   summary: string,
   constraints: any,
   partners: any[] = [],
-  userPrompt?: string
+  userPrompt?: string,
+  fundingScheme?: any
 ): string {
   const partnerInfo = partners.length > 0
     ? `\n\nCONSORTIUM PARTNERS:\n${partners.map(p => `- ${p.name} (${p.country || 'Country not specified'}): ${p.description || 'No description'}`).join('\n')}`
@@ -144,6 +145,20 @@ export function buildProposalPrompt(
 
   const userRequirements = userPrompt
     ? `\n\n🎯 MANDATORY USER REQUIREMENTS - MUST BE ADDRESSED IN ALL SECTIONS:\n${userPrompt}\n============================================================`
+    : '';
+
+  const dynamicSchemeInstructions = fundingScheme
+    ? `\n\nFUNDING SCHEME TEMPLATE (${fundingScheme.name}):
+The proposal MUST follow this specific structure. Generate content for the following sections inside a "dynamicSections" object:
+${fundingScheme.template_json.sections.map((s: any) =>
+      `- ${s.label} (Key: "${s.key}"): ${s.description}${s.charLimit ? ` [Limit: ${s.charLimit} chars]` : ''}`
+    ).join('\n')}`
+    : '';
+
+  const dynamicOutputFormat = fundingScheme
+    ? `\n  "dynamicSections": {
+${fundingScheme.template_json.sections.map((s: any) => `    "${s.key}": "<p>Content for ${s.label}...</p>"`).join(',\n')}
+  },`
     : '';
 
   return `You are an expert EU funding proposal writer.
@@ -157,9 +172,9 @@ CONTEXT: ${summary}
 CONSTRAINTS:
 - Partners: ${constraints.partners || 'Not specified'}
 - Budget: ${constraints.budget || 'Not specified'}
-- Duration: ${constraints.duration || 'Not specified'}${partnerInfo}${userRequirements}
+- Duration: ${constraints.duration || 'Not specified'}${partnerInfo}${userRequirements}${dynamicSchemeInstructions}
 
-TASK: Generate a comprehensive 11-section funding proposal in EU format.
+TASK: Generate a comprehensive funding proposal.${fundingScheme ? ' Follow the FUNDING SCHEME TEMPLATE structure provided above.' : ''}
 
 CRITICAL REQUIREMENTS:
 1. 🚨 HIGHEST PRIORITY: You MUST STRICTLY ADHERE to all constraints specified in the "MANDATORY USER REQUIREMENTS" section above.
@@ -167,17 +182,17 @@ CRITICAL REQUIREMENTS:
    - If the user specifies a DURATION, you must use exactly that duration.
    - These user-defined constraints OVERRIDE any other defaults or inferred values.
 ${userPrompt ? '' : '2. All sections must align with the project idea'}
-2. Use HTML formatting for text sections (<p>, <strong>, <ul>, <li>, etc.)
-3. Generate realistic budget in Euros with detailed breakdowns
-4. Create specific work packages with deliverables
-5. Include risk assessment matrix
-6. Generate monthly timeline
-7. Include a detailed Dissemination & Communication strategy
+${userPrompt ? '2.' : '3.'} Use HTML formatting for text sections (<p>, <strong>, <ul>, <li>, etc.)
+${userPrompt ? '3.' : '4.'} Generate realistic budget in Euros with detailed breakdowns
+${userPrompt ? '4.' : '5.'} Create specific work packages with deliverables
+${userPrompt ? '5.' : '6.'} Include risk assessment matrix
+${userPrompt ? '6.' : '7.'} Generate monthly timeline
+${userPrompt ? '7.' : '8.'} Include a detailed Dissemination & Communication strategy
 
 OUTPUT FORMAT (JSON ONLY, no markdown):
 {
   "title": "${idea.title}",
-  "summary": "<p>Executive summary...</p>",
+  "summary": "<p>Executive summary...</p>",${dynamicOutputFormat}
   "relevance": "<p>Why this project is relevant...</p>",
   "impact": "<p>Expected impact...</p>",
   "methods": "<p>Methodology...</p>",

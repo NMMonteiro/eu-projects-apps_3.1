@@ -10,6 +10,7 @@ interface ProposalStepProps {
     selectedIdea: Idea;
     analysisResult: AnalysisResult;
     userPrompt: string;
+    selectedSchemeId: string | null;
     onProposalGenerated: (proposal: FullProposal) => void;
     onBack: () => void;
     onViewProposal?: (id: string) => void;
@@ -19,6 +20,7 @@ export function ProposalStep({
     selectedIdea,
     analysisResult,
     userPrompt,
+    selectedSchemeId,
     onProposalGenerated,
     onBack,
     onViewProposal,
@@ -50,6 +52,7 @@ export function ProposalStep({
                     constraints: analysisResult.constraints,
                     selectedPartners: [], // TODO: Add partner selection
                     userPrompt: userPrompt || undefined,
+                    fundingSchemeId: selectedSchemeId || undefined,
                 }),
             });
 
@@ -204,41 +207,55 @@ export function ProposalStep({
                     <CardTitle>Proposal Sections</CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                    {proposal.relevance && (
-                        <div>
-                            <h4 className="font-medium mb-2">Relevance</h4>
-                            <div
-                                className="text-sm text-muted-foreground prose prose-invert max-w-none"
-                                dangerouslySetInnerHTML={{ __html: proposal.relevance.substring(0, 300) + '...' }}
-                            />
-                        </div>
-                    )}
-                    {proposal.impact && (
-                        <div>
-                            <h4 className="font-medium mb-2">Impact</h4>
-                            <div
-                                className="text-sm text-muted-foreground prose prose-invert max-w-none"
-                                dangerouslySetInnerHTML={{ __html: proposal.impact.substring(0, 300) + '...' }}
-                            />
-                        </div>
-                    )}
-                    {proposal.methods && (
-                        <div>
-                            <h4 className="font-medium mb-2">Methodology</h4>
-                            <div
-                                className="text-sm text-muted-foreground prose prose-invert max-w-none"
-                                dangerouslySetInnerHTML={{ __html: proposal.methods.substring(0, 300) + '...' }}
-                            />
-                        </div>
-                    )}
-                    {proposal.dissemination && (
-                        <div>
-                            <h4 className="font-medium mb-2">Dissemination</h4>
-                            <div
-                                className="text-sm text-muted-foreground prose prose-invert max-w-none"
-                                dangerouslySetInnerHTML={{ __html: proposal.dissemination.substring(0, 300) + '...' }}
-                            />
-                        </div>
+                    {proposal.dynamic_sections ? (
+                        Object.entries(proposal.dynamic_sections).map(([key, content]) => (
+                            <div key={key} className="border-b border-white/5 pb-4 last:border-0 last:pb-0">
+                                <h4 className="font-medium mb-2 capitalize">{key.replace(/_/g, ' ')}</h4>
+                                <div
+                                    className="text-sm text-muted-foreground prose prose-invert max-w-none"
+                                    dangerouslySetInnerHTML={{ __html: (content as string).substring(0, 300) + '...' }}
+                                />
+                            </div>
+                        ))
+                    ) : (
+                        <>
+                            {proposal.relevance && (
+                                <div>
+                                    <h4 className="font-medium mb-2">Relevance</h4>
+                                    <div
+                                        className="text-sm text-muted-foreground prose prose-invert max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: proposal.relevance.substring(0, 300) + '...' }}
+                                    />
+                                </div>
+                            )}
+                            {proposal.impact && (
+                                <div>
+                                    <h4 className="font-medium mb-2">Impact</h4>
+                                    <div
+                                        className="text-sm text-muted-foreground prose prose-invert max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: proposal.impact.substring(0, 300) + '...' }}
+                                    />
+                                </div>
+                            )}
+                            {proposal.methods && (
+                                <div>
+                                    <h4 className="font-medium mb-2">Methodology</h4>
+                                    <div
+                                        className="text-sm text-muted-foreground prose prose-invert max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: proposal.methods.substring(0, 300) + '...' }}
+                                    />
+                                </div>
+                            )}
+                            {proposal.dissemination && (
+                                <div>
+                                    <h4 className="font-medium mb-2">Dissemination</h4>
+                                    <div
+                                        className="text-sm text-muted-foreground prose prose-invert max-w-none"
+                                        dangerouslySetInnerHTML={{ __html: proposal.dissemination.substring(0, 300) + '...' }}
+                                    />
+                                </div>
+                            )}
+                        </>
                     )}
                 </CardContent>
             </Card>

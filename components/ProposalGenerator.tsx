@@ -15,13 +15,15 @@ export function ProposalGenerator({ onViewProposal }: ProposalGeneratorProps) {
   const [analysisResult, setAnalysisResult] = useState<AnalysisResult | null>(null);
   const [sourceUrl, setSourceUrl] = useState('');
   const [userPrompt, setUserPrompt] = useState('');
+  const [selectedSchemeId, setSelectedSchemeId] = useState<string | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
   const [proposal, setProposal] = useState<FullProposal | null>(null);
 
-  const handleUrlSubmit = (result: AnalysisResult, url: string, prompt: string) => {
+  const handleUrlSubmit = (result: AnalysisResult, url: string, prompt: string, schemeId: string | null) => {
     setAnalysisResult(result);
     setSourceUrl(url);
     setUserPrompt(prompt);
+    setSelectedSchemeId(schemeId);
     setCurrentStep('ideas');
   };
 
@@ -39,6 +41,7 @@ export function ProposalGenerator({ onViewProposal }: ProposalGeneratorProps) {
     setAnalysisResult(null);
     setSourceUrl('');
     setUserPrompt('');
+    setSelectedSchemeId(null);
     setSelectedIdea(null);
     setProposal(null);
   };
@@ -70,6 +73,7 @@ export function ProposalGenerator({ onViewProposal }: ProposalGeneratorProps) {
           selectedIdea={selectedIdea}
           analysisResult={analysisResult}
           userPrompt={userPrompt}
+          selectedSchemeId={selectedSchemeId}
           onProposalGenerated={handleProposalGenerated}
           onBack={handleBackToIdeas}
           onViewProposal={onViewProposal}

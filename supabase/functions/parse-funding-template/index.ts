@@ -20,12 +20,19 @@ serve(async (req) => {
             throw new Error('fileUrl is required')
         }
 
+        // Validate secrets
+        const serviceKey = Deno.env.get('SERVICE_ROLE_KEY');
+        const geminiKey = Deno.env.get('GEMINI_API_KEY');
+
+        if (!serviceKey) throw new Error('Missing Secret: SERVICE_ROLE_KEY');
+        if (!geminiKey) throw new Error('Missing Secret: GEMINI_API_KEY');
+
         console.log('📄 Parsing funding template:', fileUrl)
 
         // Initialize Supabase client
         const supabaseClient = createClient(
             Deno.env.get('SUPABASE_URL') ?? '',
-            Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+            Deno.env.get('SERVICE_ROLE_KEY') ?? '', // Updated to avoid CLI restriction
             {
                 auth: {
                     persistSession: false
@@ -74,7 +81,7 @@ serve(async (req) => {
         // Initialize Gemini AI
         const genAI = new GoogleGenerativeAI(Deno.env.get('GEMINI_API_KEY') ?? '')
         const model = genAI.getGenerativeModel({
-            model: 'gemini-1.5-pro',
+            model: 'gemini-2.5-pro',
             generationConfig: {
                 temperature: 0.1, // Lower temperature for more consistent extraction
             }
@@ -217,7 +224,7 @@ Return ONLY the JSON object, nothing else.`
                 details: error.stack
             }),
             {
-                status: 500,
+                status: 200, // Return 200 so the client can read the error message
                 headers: { ...corsHeaders, 'Content-Type': 'application/json' }
             }
         )

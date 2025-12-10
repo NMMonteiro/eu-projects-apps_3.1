@@ -9,8 +9,10 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { serverUrl, publicAnonKey } from '../utils/supabase/info';
+import { supabase } from '../utils/supabase';
 import type { FullProposal } from '../types/proposal';
 import { PartnerSelectionModal } from './PartnerSelectionModal';
+import { exportToDocx } from '../utils/export-docx';
 import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Select, Label } from '@/components/ui/primitives';
@@ -86,6 +88,27 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
             }
 
             const data = await response.json();
+
+            // Enrich with Funding Scheme data if ID exists but object is missing
+            if (data.funding_scheme_id && !data.funding_scheme) {
+                try {
+                    const { data: scheme } = await supabase
+                        .from('funding_schemes')
+                        .select('*')
+                        .eq('id', data.funding_scheme_id)
+                        .single();
+                    if (scheme) {
+                        console.log("Funding Scheme Loaded:", scheme);
+                        // toast.info(`Loaded Scheme: ${scheme.name} (Logo: ${scheme.logo_url ? 'Yes' : 'No'})`);
+                        data.funding_scheme = scheme;
+                    }
+                } catch (e) {
+                    console.warn('Could not fetch linked funding scheme details', e);
+                }
+            } else if (data.funding_scheme) {
+                console.log("Funding Scheme already present:", data.funding_scheme);
+            }
+
             setProposal(data);
 
             // Initialize budget limit from constraints if available
@@ -194,11 +217,99 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
         }
     };
 
-    const handleSaveSettings = async (newSettings: ProposalSettings) => {
+    const handleSaveSettings = (newSettings: ProposalSettings) => {
         if (!proposal) return;
         setSettings(newSettings);
         const updatedProposal = { ...proposal, settings: newSettings };
         setProposal(updatedProposal);
+    };
+
+    const saveSettingsToBackend = async () => {
+        if (!proposal) return;
+
+        let proposalToSave = { ...proposal };
+        const updates: string[] = [];
+
+        // --- 1. BUDGET RESCALING ---
+        const maxBudgetParam = settings.customParams?.find(p =>
+            p.key.toLowerCase().includes('max budget') ||
+            p.key.toLowerCase().includes('total budget')
+        );
+
+        if (maxBudgetParam) {
+            const cleanValue = maxBudgetParam.value.replace(/,/g, '').replace(/[^0-9.]/g, '');
+            const newLimit = parseFloat(cleanValue);
+            const currentTotal = calculateTotal(proposal.budget || []);
+
+            if (!isNaN(newLimit) && newLimit > 0 && currentTotal > 0 && Math.abs(currentTotal - newLimit) > 5) {
+                const factor = newLimit / currentTotal;
+                const newBudget = (proposal.budget || []).map(item => {
+                    const newItem = { ...item };
+                    if (newItem.breakdown && newItem.breakdown.length > 0) {
+                        newItem.breakdown = newItem.breakdown.map(sub => {
+                            const newUnitCost = Math.round((sub.unitCost * factor) * 100) / 100;
+                            return { ...sub, unitCost: newUnitCost, total: sub.quantity * newUnitCost };
+                        });
+                        newItem.cost = newItem.breakdown.reduce((sum, sub) => sum + sub.total, 0);
+                    } else {
+                        newItem.cost = Math.round((item.cost * factor) * 100) / 100;
+                    }
+                    return newItem;
+                });
+                proposalToSave.budget = newBudget;
+                setBudgetLimit(newLimit);
+                updates.push(`Budget rescaled to ${formatCurrency(newLimit)}`);
+            }
+        }
+
+        // --- 2. TIMELINE RESCALING (Duration) ---
+        const durationParam = settings.customParams?.find(p => p.key.toLowerCase().includes('duration'));
+        if (durationParam) {
+            const newDuration = parseInt(durationParam.value.replace(/[^0-9]/g, ''));
+            const timeline = proposal.timeline || [];
+
+            if (!isNaN(newDuration) && newDuration > 0 && timeline.length > 0) {
+                const currentDuration = timeline[timeline.length - 1].endMonth;
+                if (Math.abs(currentDuration - newDuration) >= 1) {
+                    const factor = newDuration / currentDuration;
+                    let previousEnd = 0;
+
+                    const newTimeline = timeline.map((phase, idx) => {
+                        const newStart = previousEnd + 1;
+                        // Force last phase to match exact duration, otherwise scale
+                        let newEnd = (idx === timeline.length - 1)
+                            ? newDuration
+                            : Math.round(phase.endMonth * factor);
+
+                        // Ensure phase has at least 1 month and stays sequential
+                        if (newEnd < newStart) newEnd = newStart;
+                        previousEnd = newEnd;
+
+                        return { ...phase, startMonth: newStart, endMonth: newEnd };
+                    });
+
+                    proposalToSave.timeline = newTimeline;
+                    updates.push(`Timeline adjusted to ${newDuration} months`);
+                }
+            }
+        }
+
+        // --- 3. PARTNER REQUIREMENTS CHECK ---
+        const partnerReqParam = settings.customParams?.find(p => p.key.toLowerCase().includes('partner') && p.key.toLowerCase().includes('requirement'));
+        if (partnerReqParam) {
+            // Check for simple min/minmium N constraints
+            const minPartnersMatch = partnerReqParam.value.match(/(?:min|minimum|at least)\s*:?\s*(\d+)/i);
+            if (minPartnersMatch) {
+                const minPartners = parseInt(minPartnersMatch[1]);
+                const currentPartners = (proposal.partners || []).length;
+                if (!isNaN(minPartners) && currentPartners < minPartners) {
+                    toast.warning(`Warning: You have ${currentPartners} partners, but requirement is ${minPartners}.`);
+                }
+            }
+        }
+
+        // Update local proposal state
+        setProposal(proposalToSave);
 
         try {
             const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
@@ -207,11 +318,17 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                     'Content-Type': 'application/json',
                     'Authorization': `Bearer ${publicAnonKey}`,
                 },
-                body: JSON.stringify(updatedProposal),
+                body: JSON.stringify(proposalToSave),
             });
 
             if (!response.ok) throw new Error('Failed to update settings');
-            toast.success('Settings saved');
+
+            if (updates.length > 0) {
+                toast.success(`Saved with updates: ${updates.join(', ')}`);
+            } else {
+                toast.success('Settings saved successfully');
+            }
+            setIsSettingsOpen(false);
         } catch (error) {
             console.error('Update error:', error);
             toast.error('Failed to save settings');
@@ -421,20 +538,30 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
     }
 
     // Build sections array including custom sections
-    const baseSections = [
-        { id: 'introduction', title: '1. Introduction', content: proposal.introduction },
-        { id: 'relevance', title: '2. Relevance', content: proposal.relevance },
-        { id: 'objectives', title: '3. Objectives', content: proposal.objectives },
-        { id: 'methodology', title: '4. Methodology', content: proposal.methodology || proposal.methods },
-        { id: 'workPlan', title: '5. Work Plan', content: proposal.workPlan },
-        { id: 'expectedResults', title: '6. Expected Results', content: proposal.expectedResults },
-        { id: 'impact', title: '7. Impact', content: proposal.impact },
-        { id: 'innovation', title: '8. Innovation', content: proposal.innovation },
-        { id: 'sustainability', title: '9. Sustainability', content: proposal.sustainability },
-        { id: 'consortium', title: '10. Consortium', content: proposal.consortium },
-        { id: 'riskManagement', title: '11. Risk Management', content: proposal.riskManagement },
-        { id: 'dissemination', title: '12. Dissemination & Communication', content: proposal.dissemination },
-    ];
+    let baseSections: { id: string; title: string; content: string | undefined }[] = [];
+
+    if (proposal.dynamic_sections && Object.keys(proposal.dynamic_sections).length > 0) {
+        baseSections = Object.entries(proposal.dynamic_sections).map(([key, content], idx) => ({
+            id: key,
+            title: `${idx + 1}. ${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
+            content: content as string
+        }));
+    } else {
+        baseSections = [
+            { id: 'introduction', title: '1. Introduction', content: proposal.introduction },
+            { id: 'relevance', title: '2. Relevance', content: proposal.relevance },
+            { id: 'objectives', title: '3. Objectives', content: proposal.objectives },
+            { id: 'methodology', title: '4. Methodology', content: proposal.methodology || proposal.methods },
+            { id: 'workPlan', title: '5. Work Plan', content: proposal.workPlan },
+            { id: 'expectedResults', title: '6. Expected Results', content: proposal.expectedResults },
+            { id: 'impact', title: '7. Impact', content: proposal.impact },
+            { id: 'innovation', title: '8. Innovation', content: proposal.innovation },
+            { id: 'sustainability', title: '9. Sustainability', content: proposal.sustainability },
+            { id: 'consortium', title: '10. Consortium', content: proposal.consortium },
+            { id: 'riskManagement', title: '11. Risk Management', content: proposal.riskManagement },
+            { id: 'dissemination', title: '12. Dissemination & Communication', content: proposal.dissemination },
+        ];
+    }
 
     // Add custom sections if they exist
     const customSections = (proposal.customSections || []).map((section: any, idx: number) => ({
@@ -484,9 +611,12 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                     <Button variant="ghost" onClick={() => setIsSettingsOpen(true)}>
                         <Settings className="h-5 w-5" />
                     </Button>
-                    <Button className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(122,162,247,0.3)]">
+                    <Button
+                        onClick={() => proposal && exportToDocx(proposal)}
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(122,162,247,0.3)]"
+                    >
                         <Download className="h-4 w-4 mr-2" />
-                        Export PDF
+                        Export DOCX
                     </Button>
                 </div>
             </div>
@@ -517,7 +647,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                         </CardHeader>
                         <CardContent>
                             <div className="prose prose-invert prose-p:text-muted-foreground prose-headings:text-foreground max-w-none">
-                                <p className="whitespace-pre-wrap leading-relaxed">{proposal.summary}</p>
+                                <div dangerouslySetInnerHTML={{ __html: proposal.summary || '' }} />
                             </div>
                         </CardContent>
                     </Card>
@@ -1043,7 +1173,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                             <Button variant="destructive" onClick={onBack}>
                                 Exit Proposal
                             </Button>
-                            <Button onClick={() => setIsSettingsOpen(false)} className="min-w-[120px]">
+                            <Button onClick={saveSettingsToBackend} className="min-w-[120px]">
                                 Save & Close
                             </Button>
                         </div>
@@ -1238,6 +1368,15 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
 
                                 setIsGeneratingSection(true);
                                 try {
+                                    // Construct rich context including settings
+                                    let richContext = proposal?.summary || '';
+                                    if (proposal?.settings?.customParams?.length) {
+                                        richContext += "\n\nProject Constraints & Configuration:";
+                                        proposal.settings.customParams.forEach(p => {
+                                            richContext += `\n- ${p.key}: ${p.value}`;
+                                        });
+                                    }
+
                                     // Call Gemini API to generate section content
                                     const response = await fetch(`${serverUrl}/generate-section`, {
                                         method: 'POST',
@@ -1247,7 +1386,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                         },
                                         body: JSON.stringify({
                                             sectionTitle: aiSectionPrompt,
-                                            proposalContext: proposal?.summary || '',
+                                            proposalContext: richContext,
                                             existingSections: sections.map(s => s.title)
                                         }),
                                     });
