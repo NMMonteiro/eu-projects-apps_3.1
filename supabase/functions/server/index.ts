@@ -110,7 +110,7 @@ Return JSON:
 
 Return ONLY valid JSON, no other text.`;
 
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-pro' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
             const phase1Result = await model.generateContent(phase1Prompt);
             const phase1Text = phase1Result.response.text();
             const phase1Data = JSON.parse(phase1Text.replace(/```json/g, '').replace(/```/g, '').trim());
@@ -150,7 +150,7 @@ Return ONLY valid JSON, no other text.`;
             }
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-pro' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
             const prompt = PromptBuilder.buildRelevancePrompt(
                 targetUrl,
@@ -194,7 +194,7 @@ Return ONLY valid JSON, no other text.`;
             }
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
             const prompt = PromptBuilder.buildProposalPrompt(
                 idea,
@@ -555,7 +555,7 @@ Return ONLY valid JSON, no other text.`;
                 // AI Parsing
                 const ai = getAI();
                 // Reverting to 2.0-flash-exp as requested
-                const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash-exp' });
+                const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
                 const prompt = `Extract partner organization information from the attached PDF file.
 
@@ -682,7 +682,7 @@ Return ONLY a valid JSON object:
             }
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-pro' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
             // Step 1: Determine which section to edit
             const detectionPrompt = `Given this user instruction: "${instruction}"
@@ -734,7 +734,7 @@ Return ONLY valid JSON, no other text.`;
             const { sectionTitle, proposalContext, existingSections } = await req.json();
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-pro' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
 
             const prompt = `You are generating a new section for a research/project proposal.
 

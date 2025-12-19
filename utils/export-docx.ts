@@ -42,6 +42,8 @@ function createSectionHeader(text: string): Paragraph {
     ],
     spacing: { before: 400, after: 200 },
     heading: HeadingLevel.HEADING_1,
+    keepNext: true,
+    keepLines: true,
   });
 }
 
@@ -61,6 +63,8 @@ function createSubHeader(text: string): Paragraph {
     ],
     spacing: { before: 300, after: 150 },
     heading: HeadingLevel.HEADING_2,
+    keepNext: true,
+    keepLines: true,
   });
 }
 
@@ -84,22 +88,218 @@ function createParagraph(text: string): Paragraph {
  * Converts HTML content to paragraphs
  * Strips HTML tags and splits by line breaks
  */
-function convertHtmlToParagraphs(html: string | undefined | null): Paragraph[] {
+// Helper to recursively parse DOM nodes into TextRuns
+function parseNodesToTextRuns(node: Node, formatting: { bold?: boolean; italics?: boolean; color?: string } = {}): TextRun[] {
+  const runs: TextRun[] = [];
+
+  if (!node.childNodes || node.childNodes.length === 0) {
+    // Text node or empty element
+    if (node.nodeType === 3 && node.textContent) { // Node.TEXT_NODE
+      runs.push(new TextRun({
+        text: node.textContent,
+        bold: formatting.bold,
+        italics: formatting.italics,
+        size: BODY_SIZE,
+        font: FONT,
+        color: formatting.color
+      }));
+    }
+    return runs;
+  }
+
+  Array.from(node.childNodes).forEach((child) => {
+    if (child.nodeType === 3) { // Text Node
+      if (child.textContent) {
+        runs.push(new TextRun({
+          text: child.textContent,
+          bold: formatting.bold,
+          italics: formatting.italics,
+          size: BODY_SIZE,
+          font: FONT,
+          color: formatting.color
+        }));
+      }
+    } else if (child.nodeType === 1) { // Element Node
+      const el = child as HTMLElement;
+      const tagName = el.tagName.toUpperCase();
+
+      if (tagName === 'BR') {
+        runs.push(new TextRun({ break: 1 }));
+      } else {
+        let newFormatting = { ...formatting };
+        if (['B', 'STRONG'].includes(tagName)) newFormatting.bold = true;
+        if (['I', 'EM'].includes(tagName)) newFormatting.italics = true;
+        // Heuristic: If it looks like a header inside a paragraph?
+
+        runs.push(...parseNodesToTextRuns(child, newFormatting));
+      }
+    }
+  });
+
+  return runs;
+}
+
+/**
+ * Converts HTML content to paragraphs preserving formatting
+ */
+function convertHtmlToParagraphs(html: string | undefined | null): (Paragraph | Table)[] {
   if (!html) return [createParagraph("")];
 
-  // Strip HTML tags and convert <br> to newlines
-  let cleanText = html
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<[^>]*>?/gm, "")
-    .trim();
+  try {
+    const parser = new DOMParser();
+    // Wrap in body to ensure valid parsing structure
+    const doc = parser.parseFromString(`<body>${html}</body>`, 'text/html');
+    const paragraphs: (Paragraph | Table)[] = [];
 
-  if (!cleanText) return [createParagraph("")];
+    Array.from(doc.body.childNodes).forEach(node => {
+      if (node.nodeType === 3) { // Text at root
+        const text = node.textContent?.trim();
+        if (text) paragraphs.push(createParagraph(text));
+      } else if (node.nodeType === 1) { // Element
+        const el = node as HTMLElement;
+        const tagName = el.tagName.toUpperCase();
 
-  // Split by newlines and create paragraphs
-  return cleanText
-    .split(/\n+/)
-    .filter((line) => line.trim())
-    .map((line) => createParagraph(line.trim()));
+        if (['H1', 'H2', 'H3', 'H4', 'H5', 'H6'].includes(tagName)) {
+          let level = HeadingLevel.HEADING_3; // Default map for content
+          if (tagName === 'H1') level = HeadingLevel.HEADING_2; // Demote H1 to H2 to fit doc structure
+          if (tagName === 'H2') level = HeadingLevel.HEADING_3;
+
+          paragraphs.push(new Paragraph({
+            text: el.innerText,
+            heading: level,
+            spacing: { before: 200, after: 100 }
+          }));
+        } else if (tagName === 'P') {
+          // Paragraph with potential inner formatting
+          const runs = parseNodesToTextRuns(el);
+          if (runs.length > 0) {
+            paragraphs.push(new Paragraph({
+              children: runs,
+              spacing: { before: 100, after: 100 }
+            }));
+          }
+        } else if (tagName === 'UL' || tagName === 'OL') {
+          Array.from(el.children).forEach(li => {
+            if (li.tagName === 'LI') {
+              const listItemText = (li as HTMLElement).innerText; // handling nested? keep simple for now
+              // Check for inner HTML in LI?
+              const runs = parseNodesToTextRuns(li);
+              paragraphs.push(new Paragraph({
+                children: runs,
+                bullet: { level: 0 }, // Basic bullet
+                spacing: { before: 50, after: 50 }
+              }));
+            }
+          });
+        } else if (tagName === 'TABLE') {
+          const rows: string[][] = [];
+          let headers: string[] = [];
+
+          // Extract headers
+          const thead = el.querySelector('thead');
+          if (thead) {
+            const headerRow = thead.querySelector('tr');
+            if (headerRow) {
+              headers = Array.from(headerRow.querySelectorAll('th, td')).map(c => (c as HTMLElement).innerText?.trim() || "");
+            }
+          }
+
+          // Extract rows
+          const trs = el.querySelectorAll('tr');
+          Array.from(trs).forEach(tr => {
+            if (tr.parentElement?.tagName === 'THEAD') return;
+            const cells = Array.from(tr.querySelectorAll('td, th')).map(c => (c as HTMLElement).innerText?.trim() || "");
+            if (cells.length > 0) rows.push(cells);
+          });
+
+          // If no specific header found but we have rows, maybe first row is header?
+          if (headers.length === 0 && rows.length > 0) {
+            headers = rows[0];
+            rows.shift(); // Remove header from data
+          }
+
+          const colCount = Math.max(headers.length, rows[0]?.length || 0);
+
+          // TRANSFORM LOGIC: If table is too wide (> 4 columns), convert to List format
+          if (colCount > 4) {
+            rows.forEach((row, rIdx) => {
+              // formatting:
+              // ### Row Title (First cell)
+              // Label: Value
+              // Label: Value
+
+              const title = row[0] || `Item ${rIdx + 1}`;
+              paragraphs.push(new Paragraph({
+                children: [new TextRun({
+                  text: title,
+                  bold: true,
+                  size: SUBHEADER_SIZE,
+                  color: "2E5C8A",
+                  font: FONT
+                })],
+                spacing: { before: 240, after: 120 },
+                border: { bottom: { color: "CCCCCC", space: 1, value: "single", size: 6 } }
+              }));
+
+              row.forEach((cell, cIdx) => {
+                if (cIdx === 0) return; // Skip title, already used
+
+                const label = headers[cIdx] || `Column ${cIdx + 1}`;
+                // Only show if cell has content
+                if (cell) {
+                  paragraphs.push(new Paragraph({
+                    children: [
+                      new TextRun({
+                        text: `${label}: `,
+                        bold: true,
+                        size: 20,
+                        font: FONT
+                      }),
+                      new TextRun({
+                        text: cell,
+                        size: 20,
+                        font: FONT
+                      })
+                    ],
+                    spacing: { after: 60 }, // Tight spacing
+                    indent: { left: 360 } // Indent data
+                  }));
+                }
+              });
+
+              // Add specific spacing between items
+              paragraphs.push(new Paragraph({ spacing: { after: 200 } }));
+            });
+          } else {
+            // Standard Table Rendering
+            if (headers.length > 0) {
+              paragraphs.push(createTable(headers, rows));
+            }
+          }
+        } else { // Divs etc. Treat as paragraph
+          const text = el.innerText?.trim();
+          if (text) {
+            const runs = parseNodesToTextRuns(el);
+            paragraphs.push(new Paragraph({
+              children: runs,
+              spacing: { before: 100, after: 100 }
+            }));
+          }
+        }
+      }
+    });
+
+    return paragraphs;
+
+  } catch (e) {
+    console.warn("DOMParser failed, falling back to simple text strip", e);
+    // Fallback
+    let cleanText = html
+      .replace(/<br\s*\/?>/gi, "\n")
+      .replace(/<[^>]*>?/gm, "")
+      .trim();
+    return cleanText.split(/\n+/).map(line => createParagraph(line.trim()));
+  }
 }
 
 /**
@@ -415,6 +615,9 @@ export async function generateDocx(
   // ============================================================================
   // BUDGET (Redesigned with Summary Table + Detailed Breakdown)
   // ============================================================================
+  // ============================================================================
+  // BUDGET (Redesigned with Summary Table + Detailed Breakdown)
+  // ============================================================================
   if (proposal.budget && proposal.budget.length > 0) {
     // Budget section (no page break - let it flow naturally)
     docChildren.push(createSectionHeader("6. Budget Summary"));
@@ -445,7 +648,7 @@ export async function generateDocx(
     // ============================================================================
     const summaryRows = categoryTotals.map((cat) => [
       cat.category,
-      `€${cat.total.toLocaleString()}`,
+      `€${cat.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
     ]);
 
     docChildren.push(
@@ -460,7 +663,7 @@ export async function generateDocx(
       new Paragraph({
         children: [
           new TextRun({
-            text: `TOTAL PROJECT BUDGET: €${grandTotal.toLocaleString()}`,
+            text: `TOTAL PROJECT BUDGET: €${grandTotal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
             bold: true,
             size: HEADER_SIZE,
             font: FONT,
@@ -474,7 +677,7 @@ export async function generateDocx(
     );
 
     // ============================================================================
-    // DETAILED BREAKDOWN - Category by category
+    // DETAILED BREAKDOWN - Unified Table
     // ============================================================================
     docChildren.push(
       new Paragraph({
@@ -488,81 +691,48 @@ export async function generateDocx(
           }),
         ],
         spacing: { before: 400, after: 200 },
+        keepNext: true
       })
     );
 
+    const unifiedRows: string[][] = [];
+
     categoryTotals.forEach((cat, idx) => {
-      // Category header
-      docChildren.push(
-        new Paragraph({
-          children: [
-            new TextRun({
-              text: `${idx + 1}. ${cat.category}`,
-              bold: true,
-              size: BODY_SIZE,
-              font: FONT,
-              color: "1F4788",
-            }),
-          ],
-          spacing: { before: 300, after: 100 },
-        })
-      );
+      // 1. Category Row with formatting logic (simulated in plain table for now)
+      // Visual separation: Category name uppercase/bold logic handled by TextRun if we weren't using helper.
+      // Since helper createTable makes everything plain text paragraphs, we use text cues.
 
-      // Description if available
-      if (cat.description) {
-        docChildren.push(createParagraph(cat.description));
-      }
+      const categoryLine = `${idx + 1}. ${cat.category.toUpperCase()}`;
+      unifiedRows.push([
+        categoryLine,
+        "", // Qty empty
+        "", // Cost empty
+        `€${cat.total.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` // Category Subtotal
+      ]);
 
-      // Detailed breakdown table if available
+      // 2. Sub-items
       if (cat.breakdown && cat.breakdown.length > 0) {
-        const breakdownRows = cat.breakdown.map((subItem) => {
+        cat.breakdown.forEach((subItem) => {
           const itemTotal = (subItem.quantity || 0) * (subItem.unitCost || 0);
-          return [
-            subItem.subItem || "N/A",
+          unifiedRows.push([
+            `   - ${subItem.subItem || "Item"}`, // Indented visually
             subItem.quantity?.toString() || "0",
-            `€${subItem.unitCost?.toLocaleString() || "0"}`,
-            `€${itemTotal.toLocaleString()}`,
-          ];
+            `€${(subItem.unitCost || 0).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`,
+            `€${itemTotal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`
+          ]);
         });
-
-        docChildren.push(
-          createTable(
-            ["Item", "Quantity", "Unit Cost", "Total"],
-            breakdownRows
-          )
-        );
-
-        // Category subtotal
-        docChildren.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `Category Total: €${cat.total.toLocaleString()}`,
-                bold: true,
-                size: BODY_SIZE,
-                font: FONT,
-              }),
-            ],
-            spacing: { before: 100, after: 200 },
-            alignment: AlignmentType.RIGHT,
-          })
-        );
-      } else {
-        // Simple cost display if no breakdown
-        docChildren.push(
-          new Paragraph({
-            children: [
-              new TextRun({
-                text: `Amount: €${cat.total.toLocaleString()}`,
-                size: BODY_SIZE,
-                font: FONT,
-              }),
-            ],
-            spacing: { before: 50, after: 150 },
-          })
-        );
       }
+      // Add empty spacer row? No, keep it compact.
     });
+
+    if (unifiedRows.length > 0) {
+      docChildren.push(
+        createTable(
+          ["Item / Category", "Quantity", "Unit Cost", "Total"],
+          unifiedRows
+        )
+      );
+    }
   }
 
   // ============================================================================

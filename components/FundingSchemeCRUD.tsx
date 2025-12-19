@@ -20,6 +20,9 @@ import {
 import { toast } from 'sonner';
 
 export function FundingSchemeCRUD() {
+    const [searchQuery, setSearchQuery] = useState('');
+    const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
+
     const [schemes, setSchemes] = useState<FundingScheme[]>([]);
     const [loading, setLoading] = useState(true);
     const [editingScheme, setEditingScheme] = useState<FundingScheme | null>(null);
@@ -36,6 +39,21 @@ export function FundingSchemeCRUD() {
             metadata: {}
         }
     });
+
+    // Filtered schemes
+    const filteredSchemes = schemes.filter(scheme => {
+        const matchesSearch = scheme.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+            (scheme.description && scheme.description.toLowerCase().includes(searchQuery.toLowerCase()));
+
+        const matchesStatus = statusFilter === 'all'
+            ? true
+            : statusFilter === 'active'
+                ? scheme.is_active
+                : !scheme.is_active;
+
+        return matchesSearch && matchesStatus;
+    });
+
 
     // Load funding schemes
     useEffect(() => {
@@ -356,18 +374,49 @@ export function FundingSchemeCRUD() {
                 </div>
             )}
 
+
+            {/* Filters */}
+            {!isCreating && !editingScheme && (
+                <div className="flex gap-4 p-4 bg-card border border-border rounded-lg">
+                    <div className="flex-1">
+                        <input
+                            type="text"
+                            placeholder="Search schemes..."
+                            value={searchQuery}
+                            onChange={(e) => setSearchQuery(e.target.value)}
+                            className="w-full px-3 py-2 bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                        />
+                    </div>
+                    <div>
+                        <select
+                            value={statusFilter}
+                            onChange={(e) => setStatusFilter(e.target.value as any)}
+                            className="px-3 py-2 bg-background border border-input rounded-lg focus:outline-none focus:ring-2 focus:ring-primary"
+                        >
+                            <option value="all">All Status</option>
+                            <option value="active">Active Only</option>
+                            <option value="inactive">Inactive Only</option>
+                        </select>
+                    </div>
+                </div>
+            )}
+
             {/* Schemes List */}
             <div className="grid grid-cols-1 gap-4">
-                {schemes.length === 0 ? (
+                {filteredSchemes.length === 0 ? (
                     <div className="text-center py-12 bg-card border border-border rounded-lg">
                         <FileText className="h-12 w-12 text-muted-foreground mx-auto mb-4" />
-                        <p className="text-muted-foreground">No funding schemes yet</p>
-                        <p className="text-sm text-muted-foreground mt-1">
-                            Create your first scheme to get started
+                        <p className="text-muted-foreground">
+                            {schemes.length === 0 ? 'No funding schemes yet' : 'No matches found'}
                         </p>
+                        {schemes.length === 0 && (
+                            <p className="text-sm text-muted-foreground mt-1">
+                                Create your first scheme to get started
+                            </p>
+                        )}
                     </div>
                 ) : (
-                    schemes.map((scheme) => (
+                    filteredSchemes.map((scheme) => (
                         <div
                             key={scheme.id}
                             className="bg-card border border-border rounded-lg p-6 hover:border-primary/50 transition"

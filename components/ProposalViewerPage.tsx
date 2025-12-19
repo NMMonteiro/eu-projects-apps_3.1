@@ -23,6 +23,164 @@ interface ProposalViewerPageProps {
     onBack: () => void;
 }
 
+// Helper to transform wide tables into responsive card lists
+function transformWideTables(html: string): string {
+    if (!html || typeof window === 'undefined') return html;
+    if (!html.includes('<table')) return html;
+
+    try {
+        const parser = new DOMParser();
+        const doc = parser.parseFromString(html, 'text/html');
+        const tables = doc.querySelectorAll('table');
+        let modified = false;
+
+        tables.forEach(table => {
+            const rows = Array.from(table.rows);
+            if (rows.length === 0) return;
+
+            let headers: string[] = [];
+            const thead = table.querySelector('thead');
+            if (thead && thead.rows.length > 0) {
+                headers = Array.from(thead.rows[0].cells).map(c => c.textContent?.trim() || "");
+            } else {
+                headers = Array.from(rows[0].cells).map(c => c.textContent?.trim() || "");
+            }
+
+            const colCount = headers.length;
+            if (colCount <= 4) return; // Only transform wide tables
+
+            modified = true;
+            const container = doc.createElement('div');
+            container.className = "space-y-4 my-6 not-prose"; // not-prose to escape typography styles
+
+            const dataRows = Array.from(table.querySelectorAll('tr')).filter(tr =>
+                !tr.parentElement || tr.parentElement.tagName !== 'THEAD'
+            );
+
+            // Check if headers matched first data row
+            if (!thead && dataRows.length > 0 && headers.join('|') === Array.from(dataRows[0].cells).map(c => c.textContent?.trim() || "").join('|')) {
+                dataRows.shift();
+            }
+
+            dataRows.forEach((tr, idx) => {
+                const cells = Array.from(tr.cells);
+                const title = cells[0]?.textContent?.trim() || `Item ${idx + 1}`;
+
+                const card = doc.createElement('div');
+                card.className = "bg-card/50 border border-border/60 rounded-lg p-4 shadow-sm";
+
+                const headerDiv = doc.createElement('div');
+                headerDiv.className = "font-semibold text-base mb-3 text-primary border-b border-border/40 pb-2";
+                headerDiv.textContent = title;
+                card.appendChild(headerDiv);
+
+                const contentGrid = doc.createElement('div');
+                contentGrid.className = "grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
+
+                cells.forEach((cell, cIdx) => {
+                    if (cIdx === 0) return;
+
+                    const label = headers[cIdx] || `Column ${cIdx + 1}`;
+                    const value = cell.innerHTML.trim();
+                    if (!value) return;
+
+                    const fieldDiv = doc.createElement('div');
+                    fieldDiv.className = "flex flex-col text-sm";
+
+                    const labelSpan = doc.createElement('span');
+                    labelSpan.className = "font-medium text-muted-foreground text-[10px] uppercase tracking-wider mb-1";
+                    labelSpan.textContent = label;
+
+                    const valueDiv = doc.createElement('div');
+                    valueDiv.className = "text-foreground/90 text-xs break-words";
+                    valueDiv.innerHTML = value;
+
+                    fieldDiv.appendChild(labelSpan);
+                    fieldDiv.appendChild(valueDiv);
+                    contentGrid.appendChild(fieldDiv);
+                });
+                card.appendChild(contentGrid);
+                container.appendChild(card);
+            });
+
+            table.replaceWith(container);
+        });
+
+        if (modified) return doc.body.innerHTML;
+        return html;
+    } catch (e) {
+        console.error("Error transforming tables", e);
+        return html;
+    }
+}
+
+const ResponsiveSectionContent = ({ content }: { content: string }) => {
+    const [processed, setProcessed] = useState(content);
+    useEffect(() => {
+        setProcessed(transformWideTables(content));
+    }, [content]);
+    return <div dangerouslySetInnerHTML={{ __html: processed }} />;
+};
+
+const DynamicPartnerSection = ({ partners }: { partners: import('../types/proposal').Partner[] }) => {
+    if (!partners || partners.length === 0) {
+        return <div className="p-4 text-center text-muted-foreground italic border border-dashed rounded-lg">No partners added yet. Please add partners in the 'Structured Data' tab to populate this section.</div>;
+    }
+    return (
+        <div className="space-y-6">
+            {partners.map((p, i) => (
+                <Card key={i} className="bg-card/50 border-border/60">
+                    <CardHeader className="pb-2">
+                        <CardTitle className="text-lg text-primary flex items-center justify-between">
+                            {p.name}
+                            {p.role && <Badge variant="outline" className="ml-2">{p.role}</Badge>}
+                        </CardTitle>
+                        {p.country && <CardDescription>{p.country}</CardDescription>}
+                    </CardHeader>
+                    <CardContent className="space-y-4 text-sm">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            {p.organisationId && (
+                                <div className="flex flex-col">
+                                    <span className="font-semibold text-xs uppercase text-muted-foreground">OID</span>
+                                    <span>{p.organisationId}</span>
+                                </div>
+                            )}
+                            {p.website && (
+                                <div className="flex flex-col">
+                                    <span className="font-semibold text-xs uppercase text-muted-foreground">Website</span>
+                                    <a href={p.website} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline truncate">
+                                        {p.website}
+                                    </a>
+                                </div>
+                            )}
+                            {p.organizationType && (
+                                <div className="flex flex-col">
+                                    <span className="font-semibold text-xs uppercase text-muted-foreground">Type</span>
+                                    <span>{p.organizationType}</span>
+                                </div>
+                            )}
+                        </div>
+
+                        {p.description && (
+                            <div>
+                                <div className="font-semibold text-xs uppercase text-muted-foreground mb-1">Background</div>
+                                <div className="text-foreground/90 whitespace-pre-wrap">{p.description}</div>
+                            </div>
+                        )}
+
+                        {p.experience && (
+                            <div className="pt-2 border-t border-border/50">
+                                <div className="font-semibold text-xs uppercase text-muted-foreground mb-1">Experience</div>
+                                <div className="text-foreground/90 whitespace-pre-wrap">{p.experience}</div>
+                            </div>
+                        )}
+                    </CardContent>
+                </Card>
+            ))}
+        </div>
+    );
+};
+
 export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPageProps) {
     const [proposal, setProposal] = useState<FullProposal | null>(null);
     const [loading, setLoading] = useState(true);
@@ -52,8 +210,8 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
         return new Intl.NumberFormat('en-US', {
             style: 'currency',
             currency: settings.currency,
-            minimumFractionDigits: 2,
-            maximumFractionDigits: 2
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
         }).format(amount);
     };
 
@@ -812,27 +970,49 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
 
                         {/* Content Sections */}
                         <div className="col-span-1 lg:col-span-3 space-y-8">
-                            {sections.map((section) => (
-                                section.content && (
+                            {sections.map((section) => {
+                                if (!section.content) return null;
+
+                                const isPartnerSection =
+                                    section.title.toLowerCase().includes('partner organisation') ||
+                                    section.title.toLowerCase().includes('participating organisation') ||
+                                    section.id === 'consortium' ||
+                                    section.id === 'partner_organisations' ||
+                                    section.id === 'participating_organisations';
+
+                                return (
                                     <div key={section.id} id={section.id} className="scroll-mt-24">
                                         <Card className="bg-card/30 border-border/40 hover:border-primary/20 transition-colors">
                                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                                 <CardTitle className="text-lg font-semibold text-foreground/90">
                                                     {section.title}
                                                 </CardTitle>
-                                                <Button variant="ghost" size="sm" onClick={() => handleEditSection(section.id, section.title, section.content)}>
-                                                    <Edit className="h-4 w-4" />
-                                                </Button>
+                                                {!isPartnerSection && (
+                                                    <Button variant="ghost" size="sm" onClick={() => handleEditSection(section.id, section.title, section.content)}>
+                                                        <Edit className="h-4 w-4" />
+                                                    </Button>
+                                                )}
+                                                {isPartnerSection && (
+                                                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('structured')}>
+                                                        <Settings className="h-4 w-4" />
+                                                    </Button>
+                                                )}
                                             </CardHeader>
                                             <CardContent>
-                                                <div className="prose prose-invert prose-sm max-w-none prose-p:text-muted-foreground/90 prose-headings:text-foreground prose-strong:text-primary/90 prose-li:text-muted-foreground/90">
-                                                    <div dangerouslySetInnerHTML={{ __html: section.content }} />
-                                                </div>
+                                                {isPartnerSection ? (
+                                                    <DynamicPartnerSection partners={proposal?.partners || []} />
+                                                ) : (
+                                                    <div className="overflow-x-auto pb-4">
+                                                        <div className="prose prose-invert prose-sm max-w-none prose-p:text-muted-foreground/90 prose-headings:text-foreground prose-strong:text-primary/90 prose-li:text-muted-foreground/90 [&_table]:min-w-[1000px] [&_table]:border-collapse [&_table]:text-xs [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-3 [&_td]:align-top [&_tr]:border-b [&_tr]:border-border/50">
+                                                            <ResponsiveSectionContent content={section.content} />
+                                                        </div>
+                                                    </div>
+                                                )}
                                             </CardContent>
                                         </Card>
                                     </div>
-                                )
-                            ))}
+                                );
+                            })}
                         </div>
                     </div>
                 </TabsContent>
@@ -1029,29 +1209,30 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                                 />
                                                             </td>
                                                             <td className="py-1 px-4">
-                                                                <div className="flex gap-2">
-                                                                    <div className="flex items-center gap-1 flex-1">
-                                                                        <span className="text-xs text-muted-foreground">Qty:</span>
+                                                                <div className="grid grid-cols-2 gap-4">
+                                                                    <div className="relative">
                                                                         <Input
                                                                             type="number"
                                                                             value={sub.quantity}
                                                                             onChange={(e) => handleSubItemChange(idx, subIdx, 'quantity', parseFloat(e.target.value) || 0)}
-                                                                            className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-7 text-xs w-16"
+                                                                            className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-7 text-xs w-full text-center"
+                                                                            placeholder="Qty"
                                                                         />
                                                                     </div>
-                                                                    <div className="flex items-center gap-1 flex-1">
-                                                                        <span className="text-xs text-muted-foreground">Cost:</span>
-                                                                        <div className="relative flex-1">
-                                                                            <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[10px]">
-                                                                                {getCurrencySymbol(settings.currency)}
-                                                                            </span>
-                                                                            <Input
-                                                                                type="number"
-                                                                                value={sub.unitCost}
-                                                                                onChange={(e) => handleSubItemChange(idx, subIdx, 'unitCost', parseFloat(e.target.value) || 0)}
-                                                                                className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-7 text-xs w-full pl-5"
-                                                                            />
-                                                                        </div>
+                                                                    <div className="relative">
+                                                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[10px]">
+                                                                            {getCurrencySymbol(settings.currency)}
+                                                                        </span>
+                                                                        <Input
+                                                                            type="text"
+                                                                            value={sub.unitCost ? Math.round(sub.unitCost).toLocaleString('en-US') : ''}
+                                                                            onChange={(e) => {
+                                                                                const rawValue = e.target.value.replace(/[^0-9]/g, '');
+                                                                                handleSubItemChange(idx, subIdx, 'unitCost', parseInt(rawValue) || 0);
+                                                                            }}
+                                                                            className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-7 text-xs w-full pl-6 text-right"
+                                                                            placeholder="0"
+                                                                        />
                                                                     </div>
                                                                 </div>
                                                             </td>

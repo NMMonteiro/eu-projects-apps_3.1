@@ -27,6 +27,13 @@ export interface RelevanceAnalysis {
 export interface Partner {
   name: string;
   role: string;
+  organisationId?: string;
+  country?: string;
+  city?: string; // May not always be populated depending on backend
+  description?: string;
+  experience?: string;
+  organizationType?: string;
+  website?: string;
 }
 
 export interface WorkPackage {
