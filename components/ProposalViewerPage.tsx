@@ -703,18 +703,20 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
     const dynamicSections = proposal.dynamicSections || (proposal as any).dynamic_sections || {};
 
     if (fundingScheme?.template_json?.sections) {
-        // Function to recursively flatten template sections
-        const processTemplateSections = (templateSections: any[], prefix = ''): any[] => {
+        // Function to recursively flatten template sections with level and description
+        const processTemplateSections = (templateSections: any[], level = 1): any[] => {
             let flattened: any[] = [];
             [...templateSections].sort((a, b) => (a.order || 0) - (b.order || 0)).forEach(ts => {
                 flattened.push({
                     id: ts.key,
-                    title: ts.label, // Template labels usually already have numbering like "1. Objectives"
+                    title: ts.label,
                     content: dynamicSections[ts.key],
-                    type: ts.type
+                    description: ts.description, // Verbatim questions
+                    type: ts.type,
+                    level: level
                 });
                 if (ts.subsections && ts.subsections.length > 0) {
-                    flattened = [...flattened, ...processTemplateSections(ts.subsections, ts.label)];
+                    flattened = [...flattened, ...processTemplateSections(ts.subsections, level + 1)];
                 }
             });
             return flattened;
@@ -879,17 +881,18 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                 </Button>
                                             </div>
                                             <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border/40 pl-2">
-                                                {sections.map((section) => (
-                                                    section.content && (
+                                                {sections.map((section: any) => (
+                                                    (section.content || section.description) && (
                                                         <a
                                                             key={section.id}
                                                             href={`#${section.id}`}
                                                             className="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors hover:bg-secondary/50 text-muted-foreground hover:text-foreground group"
+                                                            style={{ paddingLeft: section.level ? `${(section.level - 1) * 12 + 8}px` : '8px' }}
                                                         >
                                                             <div className="h-3.5 w-3.5 flex items-center justify-center">
-                                                                <div className="h-1.5 w-1.5 rounded-full bg-primary/50 group-hover:bg-primary"></div>
+                                                                <div className={`h-1.5 w-1.5 rounded-full ${section.level > 1 ? 'bg-primary/20' : 'bg-primary/50'} group-hover:bg-primary`}></div>
                                                             </div>
-                                                            <span className="text-xs">{section.title}</span>
+                                                            <span className={`truncate ${section.level === 1 ? 'font-medium' : 'text-xs'}`}>{section.title}</span>
                                                         </a>
                                                     )
                                                 ))}
@@ -1005,11 +1008,19 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
 
                                 return (
                                     <div key={section.id} id={section.id} className="scroll-mt-24">
-                                        <Card className="bg-card/30 border-border/40 hover:border-primary/20 transition-colors">
+                                        <Card className={`bg-card/30 border-border/40 hover:border-primary/20 transition-colors ${section.level > 1 ? 'ml-6 border-l-2' : ''}`}>
                                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                                <CardTitle className="text-lg font-semibold text-foreground/90">
-                                                    {section.title}
-                                                </CardTitle>
+                                                <div className="space-y-1">
+                                                    <CardTitle className={`${section.level === 1 ? 'text-lg' : 'text-base uppercase tracking-wide text-primary/70'} font-semibold text-foreground/90`}>
+                                                        {section.title}
+                                                    </CardTitle>
+                                                    {section.description && (
+                                                        <p className="text-[10px] text-muted-foreground italic max-w-2xl leading-relaxed">
+                                                            <span className="font-bold uppercase text-[9px] not-italic mr-1 text-primary/50">Instruction:</span>
+                                                            {section.description}
+                                                        </p>
+                                                    )}
+                                                </div>
                                                 {!isPartnerSection && (
                                                     <Button variant="ghost" size="sm" onClick={() => handleEditSection(section.id, section.title, section.content)}>
                                                         <Edit className="h-4 w-4" />
@@ -1027,7 +1038,22 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                 ) : (
                                                     <div className="overflow-x-auto pb-4">
                                                         <div className="prose prose-invert prose-sm max-w-none prose-p:text-muted-foreground/90 prose-headings:text-foreground prose-strong:text-primary/90 prose-li:text-muted-foreground/90 [&_table]:min-w-[1000px] [&_table]:border-collapse [&_table]:text-xs [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-3 [&_td]:align-top [&_tr]:border-b [&_tr]:border-border/50">
-                                                            <ResponsiveSectionContent content={section.content} />
+                                                            {section.content ? (
+                                                                <ResponsiveSectionContent content={section.content} />
+                                                            ) : (
+                                                                <div className="py-8 text-center border-2 border-dashed border-border/20 rounded-xl bg-secondary/10">
+                                                                    <p className="text-sm text-muted-foreground italic">No content generated for this section.</p>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="mt-4 text-primary"
+                                                                        onClick={() => handleEditSection(section.id, section.title, '')}
+                                                                    >
+                                                                        <Plus className="h-4 w-4 mr-2" />
+                                                                        Generate with AI
+                                                                    </Button>
+                                                                </div>
+                                                            )}
                                                         </div>
                                                     </div>
                                                 )}

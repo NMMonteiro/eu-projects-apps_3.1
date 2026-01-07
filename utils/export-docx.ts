@@ -404,14 +404,40 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
 
     if (templateSections && templateSections.length > 0) {
       // Recursive function to process template sections and subsections
-      const processSectionsObject = (sectionsArr: any[]) => {
+      const processSectionsObject = (sectionsArr: any[], level = 2) => {
         [...sectionsArr].sort((a, b) => (a.order || 0) - (b.order || 0)).forEach(ts => {
           const content = dyn[ts.key];
           const title = ts.label;
+          const description = ts.description; // Verbatim questions
           const lowerKey = ts.key.toLowerCase();
           const lowerTitle = title.toLowerCase();
 
-          docChildren.push(createSectionHeader(title, 2));
+          // Heading level (clamped to docx limits if necessary, though 2-4 is usually safe)
+          docChildren.push(createSectionHeader(title, Math.min(level, 4)));
+
+          // Include verbatim questions as a subtle "Form Instructions" block if they exist
+          if (description) {
+            docChildren.push(new Paragraph({
+              children: [
+                new TextRun({
+                  text: "GUIDELINES: ",
+                  bold: true,
+                  size: 16,
+                  color: "999999",
+                  font: FONT
+                }),
+                new TextRun({
+                  text: description,
+                  italics: true,
+                  size: 16,
+                  color: "666666",
+                  font: FONT
+                }),
+              ],
+              spacing: { before: 100, after: 100 },
+              shading: { fill: "F5F5F5" }
+            }));
+          }
 
           // If it's a structured section or specifically for partners/WPs, prioritize structured data
           const isPartnerSection = lowerKey.includes('partner') || lowerKey.includes('participating') || lowerTitle.includes('partner') || lowerTitle.includes('participating');
@@ -419,7 +445,6 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
           const isBudgetSection = lowerKey.includes('budget') || lowerTitle.includes('budget');
 
           if (isPartnerSection && p.partners?.length > 0) {
-            // Section 18: Participating Organisations - show structured list
             docChildren.push(createParagraph("Consortium Partner Details:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             p.partners.forEach((partner, pIdx) => {
               docChildren.push(createParagraph(`${pIdx + 1}. ${partner.name}${partner.role ? ` (${partner.role})` : ''}`, { bold: true }));
@@ -436,26 +461,22 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
               }
             });
           } else if (isWPSection && p.workPackages?.length > 0) {
-            // Section 17: Work Packages
             if (content) docChildren.push(...convertHtmlToParagraphs(content, title));
             docChildren.push(createParagraph("Work Package Overview:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             docChildren.push(createWorkPackageTable(p.workPackages));
           } else if (isBudgetSection && p.budget?.length > 0) {
-            // Budget Summary Section
             if (content) docChildren.push(...convertHtmlToParagraphs(content, title));
             docChildren.push(createParagraph("Detailed Budget Table:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             docChildren.push(createBudgetTable(p.budget, currency));
           } else if (content) {
-            // Default narrative content
             docChildren.push(...convertHtmlToParagraphs(content, title));
           } else if (ts.type === 'structured') {
-            // Placeholders for other structured types if needed
             docChildren.push(createParagraph("[Structured data section]", { italic: true, color: "999999" }));
           }
 
-          // Handle subsections
+          // Handle subsections recursively
           if (ts.subsections && ts.subsections.length > 0) {
-            processSectionsObject(ts.subsections);
+            processSectionsObject(ts.subsections, level + 1);
           }
         });
       };
