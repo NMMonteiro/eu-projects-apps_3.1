@@ -445,20 +445,11 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
           const isBudgetSection = lowerKey.includes('budget') || lowerTitle.includes('budget');
 
           if (isPartnerSection && p.partners?.length > 0) {
-            docChildren.push(createParagraph("Consortium Partner Details:", { bold: true, italic: true, color: COLOR_PRIMARY }));
+            docChildren.push(createParagraph("Consortium Partner Profiles:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             p.partners.forEach((partner, pIdx) => {
-              docChildren.push(createParagraph(`${pIdx + 1}. ${partner.name}${partner.role ? ` (${partner.role})` : ''}`, { bold: true }));
-              const partnerDetails = [
-                `Country: ${partner.country || '-'}`,
-                `Type: ${partner.organizationType || '-'}`,
-                `PIC/OID: ${partner.pic || partner.organisationId || '-'}`,
-                `Website: ${partner.website || '-'}`
-              ];
-              partnerDetails.forEach(detail => docChildren.push(createSmartParagraph(detail)));
-              if (partner.description) {
-                docChildren.push(createParagraph("Description:", { italic: true, size: 18 }));
-                docChildren.push(...convertHtmlToParagraphs(partner.description));
-              }
+              docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}${partner.acronym ? ` (${partner.acronym})` : ''}`, 3));
+              docChildren.push(createDetailedPartnerProfile(partner));
+              docChildren.push(new Paragraph({ text: "" })); // Spacer
             });
           } else if (isWPSection && p.workPackages?.length > 0) {
             if (content) docChildren.push(...convertHtmlToParagraphs(content, title));
@@ -515,7 +506,7 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
     // 4. STRUCTURED DATA: PARTNERS
     if (p.partners && p.partners.length > 0) {
       docChildren.push(createSectionHeader("Part C: Consortium and Resources", 1));
-      docChildren.push(createSectionHeader("Consortium Partners", 2));
+      docChildren.push(createSectionHeader("Consortium Partners Overview", 2));
 
       const partnerRows = [
         new TableRow({
@@ -523,7 +514,7 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
             createTableHeaderCell("No."),
             createTableHeaderCell("Partner Name"),
             createTableHeaderCell("Country"),
-            createTableHeaderCell("Role"),
+            createTableHeaderCell("Type"),
           ]
         }),
         ...p.partners.map((pt, i) => new TableRow({
@@ -531,7 +522,7 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: (i + 1).toString(), font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.name, bold: true, font: FONT, size: BODY_SIZE })] })] }),
             new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.country || "-", font: FONT, size: BODY_SIZE })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.role || "-", font: FONT, size: BODY_SIZE })] })] }),
+            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organizationType || "-", font: FONT, size: BODY_SIZE })] })] }),
           ]
         }))
       ];
@@ -549,6 +540,13 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
         }
       }));
       docChildren.push(new Paragraph({ text: "" })); // Spacer
+
+      docChildren.push(createSectionHeader("Detailed Partner Profiles", 2));
+      p.partners.forEach((partner, pIdx) => {
+        docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}`, 3));
+        docChildren.push(createDetailedPartnerProfile(partner));
+        docChildren.push(new Paragraph({ text: "" })); // Spacer
+      });
     }
 
     // 5. STRUCTURED DATA: BUDGET
@@ -748,3 +746,90 @@ function createRiskTable(risks: any[]): Table {
   });
 }
 
+function createDetailedPartnerProfile(partner: Partner): Table {
+  const lines: string[] = [
+    `Full Legal Name: ${partner.name}`,
+    `Legal Name (National Language): ${partner.legalNameNational || '-'}`,
+    `Acronym: ${partner.acronym || '-'}`,
+    `Organisation ID (OID/PIC): ${partner.organisationId || partner.pic || '-'}`,
+    `VAT Number: ${partner.vatNumber || '-'}`,
+    `Business Registration ID: ${partner.businessId || '-'}`,
+    `Organisation Type: ${partner.organizationType || '-'}`,
+    `Country: ${partner.country || '-'}`,
+    `Postcode: ${partner.postcode || '-'}`,
+    `City: ${partner.city || '-'}`,
+    `Legal Address: ${partner.legalAddress || '-'}`,
+    `Website: ${partner.website || '-'}`,
+    `Contact Person: ${partner.contactPersonName || '-'}`,
+    `Contact Email: ${partner.contactPersonEmail || partner.contactEmail || '-'}`,
+    `Phone: ${partner.contactPersonPhone || '-'}`,
+    `Role in Project: ${partner.role || partner.contactPersonRole || '-'}`,
+  ];
+
+  const rows: TableRow[] = lines.map(line => {
+    const colonIndex = line.indexOf(':');
+    const key = line.substring(0, colonIndex).trim();
+    const value = line.substring(colonIndex + 1).trim();
+
+    return new TableRow({
+      children: [
+        new TableCell({
+          children: [new Paragraph({
+            children: [new TextRun({ text: key, bold: true, font: FONT, size: 18 })],
+            spacing: { before: 40, after: 40 }
+          })],
+          width: { size: 30, type: WidthType.PERCENTAGE },
+          shading: { fill: "F9F9F9" }
+        }),
+        new TableCell({
+          children: [new Paragraph({
+            children: [new TextRun({ text: value, font: FONT, size: 18 })],
+            spacing: { before: 40, after: 40 }
+          })],
+          width: { size: 70, type: WidthType.PERCENTAGE }
+        })
+      ]
+    });
+  });
+
+  // Add long text sections as full-width rows if they exist
+  const longFields = [
+    { label: "Organization Description", value: partner.description },
+    { label: "Experience & Expertise", value: partner.experience },
+    { label: "Key Personnel & Staff Skills", value: partner.staffSkills },
+    { label: "Relevant Previous Projects", value: partner.relevantProjects }
+  ];
+
+  longFields.forEach(field => {
+    if (field.value && field.value.length > 10) {
+      rows.push(new TableRow({
+        children: [
+          new TableCell({
+            children: [
+              new Paragraph({
+                children: [new TextRun({ text: field.label, bold: true, font: FONT, size: 18, color: COLOR_PRIMARY })],
+                spacing: { before: 80, after: 40 }
+              }),
+              ...convertHtmlToParagraphs(field.value)
+            ],
+            columnSpan: 2,
+            shading: { fill: "FFFFFF" }
+          })
+        ]
+      }));
+    }
+  });
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows,
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
+      insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
+    }
+  });
+}
