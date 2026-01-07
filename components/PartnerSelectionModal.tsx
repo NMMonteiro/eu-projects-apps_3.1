@@ -14,7 +14,8 @@ interface PartnerSelectionModalProps {
     isOpen: boolean;
     onClose: () => void;
     onConfirm: (selectedPartners: Partner[]) => void;
-    proposalContext: string; // Summary or description to match against
+    selectedIdeaTitle?: string;
+    proposalContext?: string;
 }
 
 interface ScoredPartner extends Partner {
@@ -22,16 +23,18 @@ interface ScoredPartner extends Partner {
     matchReasons: string[];
 }
 
-export function PartnerSelectionModal({ isOpen, onClose, onConfirm, proposalContext }: PartnerSelectionModalProps) {
+export function PartnerSelectionModal({ isOpen, onClose, onConfirm, selectedIdeaTitle, proposalContext }: PartnerSelectionModalProps) {
     const [partners, setPartners] = useState<ScoredPartner[]>([]);
     const [loading, setLoading] = useState(false);
     const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+    const [coordinatorId, setCoordinatorId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
 
     useEffect(() => {
         if (isOpen) {
             fetchPartners();
             setSelectedIds(new Set()); // Reset selection on open
+            setCoordinatorId(null);
         }
     }, [isOpen]);
 
@@ -104,16 +107,32 @@ export function PartnerSelectionModal({ isOpen, onClose, onConfirm, proposalCont
         const newSelected = new Set(selectedIds);
         if (newSelected.has(id)) {
             newSelected.delete(id);
+            if (coordinatorId === id) setCoordinatorId(null);
         } else {
             newSelected.add(id);
+            // If no coordinator yet, maybe auto-assign first one?
+            // if (!coordinatorId) setCoordinatorId(id);
         }
         setSelectedIds(newSelected);
     };
 
+    const toggleCoordinator = (id: string) => {
+        if (!selectedIds.has(id)) {
+            toggleSelection(id);
+        }
+        setCoordinatorId(id === coordinatorId ? null : id);
+    };
+
     const handleConfirm = () => {
-        const selected = partners.filter(p => selectedIds.has(p.id));
+        const selected = partners
+            .filter(p => selectedIds.has(p.id))
+            .map(p => ({
+                ...p,
+                role: p.id === coordinatorId ? 'Coordinator' : 'Partner',
+                isCoordinator: p.id === coordinatorId
+            }))
+            .sort((a, b) => (a.isCoordinator ? -1 : b.isCoordinator ? 1 : 0));
         onConfirm(selected);
-        onClose();
     };
 
     const filteredPartners = partners.filter(p =>
@@ -163,7 +182,24 @@ export function PartnerSelectionModal({ isOpen, onClose, onConfirm, proposalCont
                                     />
                                     <div className="flex-1 space-y-1">
                                         <div className="flex items-center justify-between">
-                                            <h4 className="font-medium text-foreground">{partner.name}</h4>
+                                            <div className="flex items-center gap-2">
+                                                <h4 className="font-medium text-foreground">{partner.name}</h4>
+                                                {selectedIds.has(partner.id) && (
+                                                    <button
+                                                        onClick={(e) => {
+                                                            e.stopPropagation();
+                                                            toggleCoordinator(partner.id);
+                                                        }}
+                                                        className={`flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border transition-all ${coordinatorId === partner.id
+                                                            ? 'bg-amber-500/20 text-amber-500 border-amber-500/50 shadow-[0_0_10px_rgba(245,158,11,0.2)]'
+                                                            : 'bg-white/5 text-muted-foreground border-white/10 hover:border-amber-500/30'
+                                                            }`}
+                                                    >
+                                                        <Briefcase className="w-3 h-3" />
+                                                        {coordinatorId === partner.id ? 'Coordinator' : 'Set as Coordinator'}
+                                                    </button>
+                                                )}
+                                            </div>
                                             {partner.relevanceScore > 0 && (
                                                 <Badge variant="secondary" className="bg-primary/20 text-primary hover:bg-primary/30">
                                                     <Star className="w-3 h-3 mr-1 fill-current" />

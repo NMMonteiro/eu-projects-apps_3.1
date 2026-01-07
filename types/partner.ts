@@ -5,16 +5,22 @@ export interface Partner {
   name: string;
   legalNameNational?: string;
   acronym?: string;
-  organisationId?: string;
+  organisationId?: string; // OID or PIC
   pic?: string;
-  role?: string;
-  organizationType?: string;
+  vatNumber?: string;
+  businessId?: string;
+  organizationType?: string; // SME, University, Research, NGO, Public, etc.
   isPublicBody?: boolean;
   isNonProfit?: boolean;
   country?: string;
+  legalAddress?: string;
+  city?: string;
+  postcode?: string;
+  region?: string;
   contactEmail?: string;
   website?: string;
   description?: string;
+  department?: string;
   keywords?: string[];
   logoUrl?: string;
   pdfUrl?: string;
@@ -30,8 +36,16 @@ export interface Partner {
   contactPersonPosition?: string;
   contactPersonEmail?: string;
   contactPersonPhone?: string;
+  contactPersonRole?: string;
 
-  // Experience
+  // Expertise & Experience
   experience?: string;
+  staffSkills?: string;
+  relevantProjects?: string;
+  
+  // Role specifically for a project/proposal
+  role?: string; // e.g. "Coordinator", "Partner"
+  isCoordinator?: boolean;
+  
   createdAt: string;
 }

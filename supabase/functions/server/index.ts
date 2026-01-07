@@ -22,7 +22,11 @@ const getSupabaseClient = () => {
 
 const getAI = () => {
     const apiKey = Deno.env.get('GEMINI_API_KEY');
-    if (!apiKey) throw new Error('GEMINI_API_KEY not set');
+    if (!apiKey) {
+        console.error('CRITICAL: GEMINI_API_KEY is missing');
+        throw new Error('GEMINI_API_KEY not set in Supabase Secrets');
+    }
+
     return new GoogleGenerativeAI(apiKey);
 };
 
@@ -61,6 +65,33 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const path = url.pathname;
 
+    // Diagnostic endpoint
+    if (path.includes('/test-ai')) {
+        try {
+            const ai = getAI();
+            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+            const result = await model.generateContent('Say hello');
+            return new Response(
+                JSON.stringify({
+                    success: true,
+                    message: result.response.text(),
+                    apiKeyPrefix: Deno.env.get('GEMINI_API_KEY')?.substring(0, 8)
+                }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        } catch (error: any) {
+            return new Response(
+                JSON.stringify({
+                    success: false,
+                    error: error.message,
+                    details: error.toString(),
+                    apiKeyPrefix: Deno.env.get('GEMINI_API_KEY')?.substring(0, 8)
+                }),
+                { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+    }
+
     try {
         // ===== HEALTH CHECK =====
         if (path === '/' || path === '') {
@@ -88,43 +119,71 @@ Deno.serve(async (req) => {
 
             // Phase 1: Extract summary and constraints
             const phase1Prompt = `Analyze this funding call and extract key information.
-
+${userPrompt ? `\nUSER PROVIDED INSTRUCTIONS/TEXT (PARALLEL TO OR REPLACING URL CONTENT):\n${userPrompt}\n` : ''}
 URL: ${targetUrl}
 CONTENT: ${content.substring(0, 5000)}
 
 Extract:
-1. A summary of the funding opportunity
+1. A summary of the funding opportunity (incorporating user instructions if provided)
 2. Partner requirements
-3. Budget range
-4. Project duration
+3. Budget range (If the user specifies a specific budget, use that EXACTLY)
+4. Project duration (If the user specifies a specific duration, use that EXACTLY)
 
 Return JSON:
 {
   "summary": "Summary of the opportunity",
   "constraints": {
     "partners": "e.g., 3-5 partners required",
-    "budget": "e.g., €500,000 - €2,000,000",
-    "duration": "e.g., 24-36 months"
+    "budget": "e.g., €500,000",
+    "duration": "e.g., 24 months"
   }
 }
 
 Return ONLY valid JSON, no other text.`;
 
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-            const phase1Result = await model.generateContent(phase1Prompt);
-            const phase1Text = phase1Result.response.text();
-            const phase1Data = JSON.parse(phase1Text.replace(/```json/g, '').replace(/```/g, '').trim());
+            let phase1Data;
+            try {
+                const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+                const phase1Result = await model.generateContent(phase1Prompt);
+                const phase1Text = phase1Result.response.text();
+                phase1Data = JSON.parse(phase1Text.replace(/```json/g, '').replace(/```/g, '').trim());
+            } catch (error: any) {
+                console.error('Phase 1 failed:', error);
+                return new Response(
+                    JSON.stringify({
+                        error: 'Analysis failed (Phase 1)',
+                        message: error.message,
+                        model: 'gemini-2.0-flash',
+                        hint: 'This error often occurs if the Gemini model name is invalid or the API key is not authorized for this specific model.'
+                    }),
+                    { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                );
+            }
 
             // Phase 2: Generate ideas
-            const phase2Prompt = PromptBuilder.buildPhase2Prompt(
-                phase1Data.summary,
-                phase1Data.constraints,
-                userPrompt
-            );
+            let phase2Data;
+            try {
+                const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+                const phase2Prompt = PromptBuilder.buildPhase2Prompt(
+                    phase1Data.summary,
+                    phase1Data.constraints,
+                    userPrompt
+                );
 
-            const phase2Result = await model.generateContent(phase2Prompt);
-            const phase2Text = phase2Result.response.text();
-            const phase2Data = JSON.parse(phase2Text.replace(/```json/g, '').replace(/```/g, '').trim());
+                const phase2Result = await model.generateContent(phase2Prompt);
+                const phase2Text = phase2Result.response.text();
+                phase2Data = JSON.parse(phase2Text.replace(/```json/g, '').replace(/```/g, '').trim());
+            } catch (error: any) {
+                console.error('Phase 2 failed:', error);
+                return new Response(
+                    JSON.stringify({
+                        error: 'Idea generation failed (Phase 2)',
+                        message: error.message,
+                        model: 'gemini-2.0-flash'
+                    }),
+                    { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                );
+            }
 
             return new Response(
                 JSON.stringify({
@@ -150,7 +209,7 @@ Return ONLY valid JSON, no other text.`;
             }
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
             const prompt = PromptBuilder.buildRelevancePrompt(
                 targetUrl,
@@ -176,9 +235,34 @@ Return ONLY valid JSON, no other text.`;
 
             // Load partner details if provided
             const partners = [];
-            for (const partnerId of selectedPartners) {
-                const partner = await KV.get(`partner:${partnerId}`);
-                if (partner) partners.push(partner);
+            if (selectedPartners.length > 0) {
+                const supabase = getSupabaseClient();
+                const { data: dbPartners } = await supabase
+                    .from('partners')
+                    .select('*')
+                    .in('id', selectedPartners);
+
+                if (dbPartners) {
+                    // Map to camelCase for the prompt builder
+                    partners.push(...dbPartners.map(p => ({
+                        id: p.id,
+                        name: p.name,
+                        acronym: p.acronym,
+                        country: p.country,
+                        description: p.description,
+                        experience: p.experience,
+                        relevantProjects: p.relevant_projects,
+                        isCoordinator: selectedPartners.indexOf(p.id) === 0 // Assuming first one is coordinator for now or check a role
+                    })));
+                }
+
+                // Fallback to KV if any missing (for transition)
+                for (const partnerId of selectedPartners) {
+                    if (!partners.find(p => p.id === partnerId)) {
+                        const kvPartner = await KV.get(`partner:${partnerId}`);
+                        if (kvPartner) partners.push(kvPartner);
+                    }
+                }
             }
 
             // Load funding scheme if selected
@@ -194,7 +278,7 @@ Return ONLY valid JSON, no other text.`;
             }
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
             const prompt = PromptBuilder.buildProposalPrompt(
                 idea,
@@ -207,7 +291,67 @@ Return ONLY valid JSON, no other text.`;
 
             const result = await model.generateContent(prompt);
             const text = result.response.text();
-            let proposal = JSON.parse(text.replace(/```json/g, '').replace(/```/g, '').trim());
+
+            let proposal;
+            try {
+                // Remove markdown code blocks if present
+                const cleanedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+                proposal = JSON.parse(cleanedText);
+            } catch (parseError: any) {
+                console.error('Initial JSON parse failed. Attempting repair...', parseError.message);
+
+                // Truncation repair: This is complex because the AI can cut off anywhere
+                let repairedText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+
+                // Remove trailing garbage that would prevent closing braces from working
+                repairedText = repairedText
+                    .replace(/,\s*$/, '')      // Remove trailing comma
+                    .replace(/:\s*$/, '')      // Remove trailing colon
+                    .replace(/:\s*"[^"]*$/, '') // Remove trailing key that has an open quote value
+                    .replace(/,\s*"[^"]*$/, '') // Remove trailing key that was just started
+                    .replace(/"\s*$/, '');     // Remove trailing open quote
+
+                // If it ends with a key start like "key
+                repairedText = repairedText.replace(/"[^"]+$/, '');
+
+                // Count braces and brackets to close them
+                const openBraces = (repairedText.match(/{/g) || []).length;
+                const closeBraces = (repairedText.match(/}/g) || []).length;
+                const openBrackets = (repairedText.match(/\[/g) || []).length;
+                const closeBrackets = (repairedText.match(/\]/g) || []).length;
+
+                let repairSuffix = '';
+                for (let i = 0; i < (openBrackets - closeBrackets); i++) repairSuffix += ']';
+                for (let i = 0; i < (openBraces - closeBraces); i++) repairSuffix += '}';
+
+                try {
+                    proposal = JSON.parse(repairedText + repairSuffix);
+                    console.log('Advanced JSON repair successful!');
+                } catch (secondError: any) {
+                    console.error('Advanced JSON repair failed:', secondError.message);
+                    // Final attempt: Very aggressive truncation to last good property
+                    try {
+                        const lastGoodIndex = repairedText.lastIndexOf('",');
+                        if (lastGoodIndex !== -1) {
+                            repairedText = repairedText.substring(0, lastGoodIndex + 1);
+                            const oBraces = (repairedText.match(/{/g) || []).length;
+                            const cBraces = (repairedText.match(/}/g) || []).length;
+                            const oBrackets = (repairedText.match(/\[/g) || []).length;
+                            const cBrackets = (repairedText.match(/\]/g) || []).length;
+
+                            let finalSuffix = '';
+                            for (let i = 0; i < (oBrackets - cBrackets); i++) finalSuffix += ']';
+                            for (let i = 0; i < (oBraces - cBraces); i++) finalSuffix += '}';
+                            proposal = JSON.parse(repairedText + finalSuffix);
+                            console.log('Aggressive JSON repair successful!');
+                        } else {
+                            throw new Error('Could not find a safe truncation point.');
+                        }
+                    } catch (finalError) {
+                        throw new Error(`AI generated a response that was too long or malformed. Length: ${text.length} chars. Error: ${parseError.message}`);
+                    }
+                }
+            }
 
             // Add metadata
             proposal.id = `proposal-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -344,13 +488,34 @@ Return ONLY valid JSON, no other text.`;
 
         // GET /partners - List all
         if (path.includes('/partners') && req.method === 'GET' && !path.match(/\/partners\/[^\/]+$/)) {
-            const partners = await KV.getByPrefix('partner:');
+            const supabase = getSupabaseClient();
+            const { data: partners, error } = await supabase
+                .from('partners')
+                .select('*')
+                .order('created_at', { ascending: false });
+
+            if (error) throw error;
+
+            // Simple map back to camelCase for minimal fields used in listing
+            const mappedPartners = partners.map(p => ({
+                id: p.id,
+                name: p.name,
+                acronym: p.acronym,
+                country: p.country,
+                createdAt: p.created_at
+            }));
+
+            // Fallback: also get from KV (for transition)
+            const kvPartners = await KV.getByPrefix('partner:');
+            const allPartners = [...mappedPartners];
+            kvPartners.forEach(kvp => {
+                if (!allPartners.find(p => p.id === kvp.id)) {
+                    allPartners.push(kvp);
+                }
+            });
+
             return new Response(
-                JSON.stringify({
-                    partners: partners.sort((a: any, b: any) =>
-                        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-                    )
-                }),
+                JSON.stringify({ partners: allPartners }),
                 { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
@@ -358,36 +523,129 @@ Return ONLY valid JSON, no other text.`;
         // GET /partners/:id - Get single
         if (path.match(/\/partners\/[^\/]+$/) && req.method === 'GET') {
             const id = path.split('/').pop();
-            const partner = await KV.get(`partner:${id}`);
+            const supabase = getSupabaseClient();
 
-            if (!partner) {
+            const { data: p, error } = await supabase
+                .from('partners')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            if (p) {
+                // Map snake_case to camelCase
+                const partner = {
+                    id: p.id,
+                    name: p.name,
+                    legalNameNational: p.legal_name_national,
+                    acronym: p.acronym,
+                    organisationId: p.organisation_id,
+                    pic: p.pic,
+                    vatNumber: p.vat_number,
+                    businessId: p.business_id,
+                    organizationType: p.organization_type,
+                    isPublicBody: p.is_public_body,
+                    isNonProfit: p.is_non_profit,
+                    country: p.country,
+                    legalAddress: p.legal_address,
+                    city: p.city,
+                    postcode: p.postcode,
+                    region: p.region,
+                    contactEmail: p.contact_email,
+                    website: p.website,
+                    description: p.description,
+                    department: p.department,
+                    keywords: p.keywords,
+                    logoUrl: p.logo_url,
+                    pdfUrl: p.pdf_url,
+                    legalRepName: p.legal_rep_name,
+                    legalRepPosition: p.legal_rep_position,
+                    legalRepEmail: p.legal_rep_email,
+                    legalRepPhone: p.legal_rep_phone,
+                    contactPersonName: p.contact_person_name,
+                    contactPersonPosition: p.contact_person_position,
+                    contactPersonEmail: p.contact_person_email,
+                    contactPersonPhone: p.contact_person_phone,
+                    contactPersonRole: p.contact_person_role,
+                    experience: p.experience,
+                    staffSkills: p.staff_skills,
+                    relevantProjects: p.relevant_projects,
+                    createdAt: p.created_at
+                };
+
                 return new Response(
-                    JSON.stringify({ error: 'Partner not found' }),
-                    { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                    JSON.stringify(partner),
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                );
+            }
+
+            // Fallback to KV
+            const kvPartner = await KV.get(`partner:${id}`);
+            if (kvPartner) {
+                return new Response(
+                    JSON.stringify(kvPartner),
+                    { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
                 );
             }
 
             return new Response(
-                JSON.stringify(partner),
-                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+                JSON.stringify({ error: 'Partner not found' }),
+                { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
 
         // POST /partners - Create
         if (path.includes('/partners') && req.method === 'POST' && !path.includes('/upload')) {
             const body = await req.json();
-            const id = body.id || `partner-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+            const supabase = getSupabaseClient();
 
-            const partner = {
-                ...body,
-                id,
-                createdAt: body.createdAt || new Date().toISOString(),
+            // Map camelCase to snake_case
+            const dbPartner = {
+                name: body.name,
+                legal_name_national: body.legalNameNational,
+                acronym: body.acronym,
+                organisation_id: body.organisationId,
+                pic: body.pic,
+                vat_number: body.vatNumber,
+                business_id: body.businessId,
+                organization_type: body.organizationType,
+                is_public_body: body.isPublicBody,
+                is_non_profit: body.isNonProfit,
+                country: body.country,
+                legal_address: body.legalAddress,
+                city: body.city,
+                postcode: body.postcode,
+                region: body.region,
+                contact_email: body.contactEmail,
+                website: body.website,
+                description: body.description,
+                department: body.department,
+                keywords: body.keywords,
+                logo_url: body.logoUrl,
+                pdf_url: body.pdfUrl,
+                legal_rep_name: body.legalRepName,
+                legal_rep_position: body.legalRepPosition,
+                legal_rep_email: body.legalRepEmail,
+                legal_rep_phone: body.legalRepPhone,
+                contact_person_name: body.contactPersonName,
+                contact_person_position: body.contactPersonPosition,
+                contact_person_email: body.contactPersonEmail,
+                contact_person_phone: body.contactPersonPhone,
+                contact_person_role: body.contactPersonRole,
+                experience: body.experience,
+                staff_skills: body.staffSkills,
+                relevant_projects: body.relevantProjects
             };
 
-            await KV.set(`partner:${id}`, partner);
+            const { data, error } = await supabase
+                .from('partners')
+                .insert(dbPartner)
+                .select()
+                .single();
+
+            if (error) throw error;
 
             return new Response(
-                JSON.stringify(partner),
+                JSON.stringify({ ...body, id: data.id, createdAt: data.created_at }),
                 { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
@@ -395,27 +653,60 @@ Return ONLY valid JSON, no other text.`;
         // PUT /partners/:id - Update
         if (path.match(/\/partners\/[^\/]+$/) && req.method === 'PUT') {
             const id = path.split('/').pop();
-            const existing = await KV.get(`partner:${id}`);
+            const body = await req.json();
+            const supabase = getSupabaseClient();
 
-            if (!existing) {
-                return new Response(
-                    JSON.stringify({ error: 'Partner not found' }),
-                    { status: 404, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-                );
-            }
-
-            const updates = await req.json();
-            const updated = {
-                ...existing,
-                ...updates,
-                id: existing.id, // Preserve ID
-                createdAt: existing.createdAt, // Preserve creation date
+            // Map camelCase to snake_case
+            const dbPartner = {
+                name: body.name,
+                legal_name_national: body.legalNameNational,
+                acronym: body.acronym,
+                organisation_id: body.organisationId,
+                pic: body.pic,
+                vat_number: body.vatNumber,
+                business_id: body.businessId,
+                organization_type: body.organizationType,
+                is_public_body: body.isPublicBody,
+                is_non_profit: body.isNonProfit,
+                country: body.country,
+                legal_address: body.legalAddress,
+                city: body.city,
+                postcode: body.postcode,
+                region: body.region,
+                contact_email: body.contactEmail,
+                website: body.website,
+                description: body.description,
+                department: body.department,
+                keywords: body.keywords,
+                logo_url: body.logoUrl,
+                pdf_url: body.pdfUrl,
+                legal_rep_name: body.legalRepName,
+                legal_rep_position: body.legalRepPosition,
+                legal_rep_email: body.legalRepEmail,
+                legal_rep_phone: body.legalRepPhone,
+                contact_person_name: body.contactPersonName,
+                contact_person_position: body.contactPersonPosition,
+                contact_person_email: body.contactPersonEmail,
+                contact_person_phone: body.contactPersonPhone,
+                contact_person_role: body.contactPersonRole,
+                experience: body.experience,
+                staff_skills: body.staffSkills,
+                relevant_projects: body.relevantProjects
             };
 
-            await KV.set(`partner:${id}`, updated);
+            const { error } = await supabase
+                .from('partners')
+                .update(dbPartner)
+                .eq('id', id);
+
+            if (error) {
+                // Check if it was in KV and needs to be migrated?
+                // For now just error if DB update fails and it's not a UUID
+                throw error;
+            }
 
             return new Response(
-                JSON.stringify(updated),
+                JSON.stringify({ ...body, id }),
                 { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
@@ -423,7 +714,10 @@ Return ONLY valid JSON, no other text.`;
         // DELETE /partners/:id
         if (path.match(/\/partners\/[^\/]+$/) && req.method === 'DELETE') {
             const id = path.split('/').pop();
-            await KV.del(`partner:${id}`);
+            const supabase = getSupabaseClient();
+
+            await supabase.from('partners').delete().eq('id', id);
+            await KV.del(`partner:${id}`); // Also delete from KV if it was there
 
             return new Response(
                 JSON.stringify({ success: true }),
@@ -464,10 +758,18 @@ Return ONLY valid JSON, no other text.`;
                 .getPublicUrl(fileName);
 
             // Update partner record
-            const partner = await KV.get(`partner:${id}`);
-            if (partner) {
-                partner.logoUrl = publicUrl;
-                await KV.set(`partner:${id}`, partner);
+            const { error: dbError } = await supabase
+                .from('partners')
+                .update({ logo_url: publicUrl })
+                .eq('id', id);
+
+            if (dbError) {
+                // Fallback to KV if DB fails (e.g. if it's a legacy KV partner)
+                const partner = await KV.get(`partner:${id}`);
+                if (partner) {
+                    partner.logoUrl = publicUrl;
+                    await KV.set(`partner:${id}`, partner);
+                }
             }
 
             return new Response(
@@ -509,10 +811,18 @@ Return ONLY valid JSON, no other text.`;
                 .getPublicUrl(fileName);
 
             // Update partner record
-            const partner = await KV.get(`partner:${id}`);
-            if (partner) {
-                partner.pdfUrl = publicUrl;
-                await KV.set(`partner:${id}`, partner);
+            const { error: dbError } = await supabase
+                .from('partners')
+                .update({ pdf_url: publicUrl })
+                .eq('id', id);
+
+            if (dbError) {
+                // Fallback to KV
+                const partner = await KV.get(`partner:${id}`);
+                if (partner) {
+                    partner.pdfUrl = publicUrl;
+                    await KV.set(`partner:${id}`, partner);
+                }
             }
 
             return new Response(
@@ -555,22 +865,52 @@ Return ONLY valid JSON, no other text.`;
                 // AI Parsing
                 const ai = getAI();
                 // Reverting to 2.0-flash-exp as requested
-                const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+                const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
-                const prompt = `Extract partner organization information from the attached PDF file.
+                const prompt = `Extract all possible partner organization information from the attached PDF file (PIF - Partner Information Form).
+                
+                Be thorough. Extract:
+                - Legal Name and Acronym
+                - OID / PIC / Organisation ID
+                - VAT Number and Business Registration ID
+                - Organization Type (University, SME, NGO, Research Institute, etc.)
+                - Public Body (boolean) and Non-profit (boolean) status
+                - Legal Address (Street), City, Postcode, Country, Region
+                - Department or Unit name
+                - Website and Main Contact Email
+                - Brief Description (summary of organization)
+                - Expertise, Experience, staff skills, and previous relevant projects
+                - Contact Person details (Name, Email, Phone, Role)
 
-Return ONLY a valid JSON object:
-{
-  "name": "organization name",
-  "organisationId": "OID/PIC number if available",
-  "description": "brief summary",
-  "keywords": ["keyword1", "keyword2"],
-  "experience": "relevant experience",
-  "country": "country",
-  "organizationType": "SME, University, NGO, etc",
-  "website": "URL or null",
-  "contactEmail": "email or null"
-}`;
+                Return ONLY a valid JSON object:
+                {
+                  "name": "full legal name",
+                  "acronym": "acronym",
+                  "organisationId": "OID/PIC",
+                  "vatNumber": "VAT",
+                  "businessId": "Business ID",
+                  "organizationType": "SME/University/etc",
+                  "isPublicBody": true/false,
+                  "isNonProfit": true/false,
+                  "legalAddress": "street address",
+                  "city": "city",
+                  "postcode": "postcode",
+                  "country": "country",
+                  "region": "region",
+                  "website": "URL",
+                  "contactEmail": "general email",
+                  "department": "department name",
+                  "description": "summary text",
+                  "experience": "detailed experience",
+                  "staffSkills": "personnel skills",
+                  "relevantProjects": "list of projects",
+                  "keywords": ["kw1", "kw2"],
+                  "contactPersonName": "name",
+                  "contactPersonEmail": "email",
+                  "contactPersonPhone": "phone",
+                  "contactPersonRole": "role"
+                }`;
+
 
                 let result;
                 try {
@@ -645,11 +985,64 @@ Return ONLY a valid JSON object:
                     newPartner.pdfUrl = publicUrl;
                 }
 
-                await KV.set(`partner:${id}`, newPartner);
-                console.log('Partner created:', id);
+                // Map to snake_case for DB insert
+                const dbPartner = {
+                    name: newPartner.name,
+                    legal_name_national: newPartner.legalNameNational,
+                    acronym: newPartner.acronym,
+                    organisation_id: newPartner.organisationId,
+                    pic: newPartner.pic,
+                    vat_number: newPartner.vatNumber,
+                    business_id: newPartner.businessId,
+                    organization_type: newPartner.organizationType,
+                    is_public_body: newPartner.isPublicBody,
+                    is_non_profit: newPartner.isNonProfit,
+                    country: newPartner.country,
+                    legal_address: newPartner.legalAddress,
+                    city: newPartner.city,
+                    postcode: newPartner.postcode,
+                    region: newPartner.region,
+                    contact_email: newPartner.contactEmail,
+                    website: newPartner.website,
+                    description: newPartner.description,
+                    department: newPartner.department,
+                    keywords: newPartner.keywords,
+                    logo_url: newPartner.logoUrl,
+                    pdf_url: newPartner.pdfUrl,
+                    legal_rep_name: newPartner.legalRepName,
+                    legal_rep_position: newPartner.legalRepPosition,
+                    legal_rep_email: newPartner.legalRepEmail,
+                    legal_rep_phone: newPartner.legalRepPhone,
+                    contact_person_name: newPartner.contactPersonName,
+                    contact_person_position: newPartner.contactPersonPosition,
+                    contact_person_email: newPartner.contactPersonEmail,
+                    contact_person_phone: newPartner.contactPersonPhone,
+                    contact_person_role: newPartner.contactPersonRole,
+                    experience: newPartner.experience,
+                    staff_skills: newPartner.staffSkills,
+                    relevant_projects: newPartner.relevantProjects
+                };
+
+                const { data: savedData, error: saveError } = await supabase
+                    .from('partners')
+                    .insert(dbPartner)
+                    .select()
+                    .single();
+
+                if (saveError) {
+                    console.error('Failed to save to DB, falling back to KV:', saveError);
+                    await KV.set(`partner:${id}`, newPartner);
+                }
 
                 return new Response(
-                    JSON.stringify({ partnerId: id, partner: newPartner }),
+                    JSON.stringify({
+                        partnerId: savedData?.id || id,
+                        partner: savedData ? {
+                            ...newPartner,
+                            id: savedData.id,
+                            createdAt: savedData.created_at
+                        } : newPartner
+                    }),
                     { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
                 );
             } catch (error: any) {
@@ -682,7 +1075,7 @@ Return ONLY a valid JSON object:
             }
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
             // Step 1: Determine which section to edit
             const detectionPrompt = `Given this user instruction: "${instruction}"
@@ -734,7 +1127,7 @@ Return ONLY valid JSON, no other text.`;
             const { sectionTitle, proposalContext, existingSections } = await req.json();
 
             const ai = getAI();
-            const model = ai.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
+            const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
 
             const prompt = `You are generating a new section for a research/project proposal.
 

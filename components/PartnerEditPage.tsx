@@ -7,6 +7,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/primitives';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { toast } from 'sonner';
 import { serverUrl, publicAnonKey } from '../utils/supabase/info';
 import type { Partner } from '../types/partner';
@@ -213,6 +214,83 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                         </div>
                     </div>
 
+                    <div className="grid grid-cols-2 gap-4">
+                        <div className="flex items-center space-x-2 pt-2">
+                            <Checkbox
+                                id="isPublicBody"
+                                checked={partner.isPublicBody || false}
+                                onCheckedChange={(checked) => updateField('isPublicBody', checked === true)}
+                            />
+                            <label htmlFor="isPublicBody" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                Public Body?
+                            </label>
+                        </div>
+                        <div className="flex items-center space-x-2 pt-2">
+                            <Checkbox
+                                id="isNonProfit"
+                                checked={partner.isNonProfit || false}
+                                onCheckedChange={(checked) => updateField('isNonProfit', checked === true)}
+                            />
+                            <label htmlFor="isNonProfit" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                                Non-Profit?
+                            </label>
+                        </div>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4">
+                        <div>
+                            <Label>VAT Number</Label>
+                            <Input
+                                value={partner.vatNumber || ''}
+                                onChange={(e) => updateField('vatNumber', e.target.value)}
+                                placeholder="PT123456789"
+                            />
+                        </div>
+                        <div>
+                            <Label>Business Registration ID</Label>
+                            <Input
+                                value={partner.businessId || ''}
+                                onChange={(e) => updateField('businessId', e.target.value)}
+                                placeholder="REG-123456"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="space-y-4">
+                        <Label>Legal Address</Label>
+                        <Input
+                            value={partner.legalAddress || ''}
+                            onChange={(e) => updateField('legalAddress', e.target.value)}
+                            placeholder="Street Name, No. 123"
+                        />
+                        <div className="grid grid-cols-3 gap-4">
+                            <div>
+                                <Label>Postcode</Label>
+                                <Input
+                                    value={partner.postcode || ''}
+                                    onChange={(e) => updateField('postcode', e.target.value)}
+                                    placeholder="1000-001"
+                                />
+                            </div>
+                            <div>
+                                <Label>City</Label>
+                                <Input
+                                    value={partner.city || ''}
+                                    onChange={(e) => updateField('city', e.target.value)}
+                                    placeholder="Lisbon"
+                                />
+                            </div>
+                            <div>
+                                <Label>Region</Label>
+                                <Input
+                                    value={partner.region || ''}
+                                    onChange={(e) => updateField('region', e.target.value)}
+                                    placeholder="Lisboa"
+                                />
+                            </div>
+                        </div>
+                    </div>
+
                     <div>
                         <Label>Role in Project</Label>
                         <Input
@@ -262,6 +340,15 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                     </div>
 
                     <div>
+                        <Label>Department/Unit</Label>
+                        <Input
+                            value={partner.department || ''}
+                            onChange={(e) => updateField('department', e.target.value)}
+                            placeholder="Department of Innovation / R&D Unit"
+                        />
+                    </div>
+
+                    <div>
                         <Label>Contact Person Name</Label>
                         <Input
                             value={partner.contactPersonName || ''}
@@ -305,6 +392,26 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                             value={partner.experience || ''}
                             onChange={(e) => updateField('experience', e.target.value)}
                             placeholder="Relevant experience and expertise..."
+                            rows={3}
+                        />
+                    </div>
+
+                    <div>
+                        <Label>Staff Skills (Key Personnel)</Label>
+                        <Textarea
+                            value={partner.staffSkills || ''}
+                            onChange={(e) => updateField('staffSkills', e.target.value)}
+                            placeholder="Key personnel and their relevant skills..."
+                            rows={3}
+                        />
+                    </div>
+
+                    <div>
+                        <Label>Relevant Previous Projects</Label>
+                        <Textarea
+                            value={partner.relevantProjects || ''}
+                            onChange={(e) => updateField('relevantProjects', e.target.value)}
+                            placeholder="List some relevant projects previously participated in..."
                             rows={3}
                         />
                     </div>

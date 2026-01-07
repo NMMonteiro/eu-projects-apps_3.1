@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
 import { URLInputStep } from './URLInputStep';
 import { IdeasStep } from './IdeasStep';
+import { PartnerSelectionModal } from './PartnerSelectionModal';
 import { ProposalStep } from './ProposalStep';
 import type { AnalysisResult, Idea, FullProposal } from '../types/proposal';
 
-type Step = 'url-input' | 'ideas' | 'proposal';
+type Step = 'url-input' | 'ideas' | 'partners' | 'proposal';
 
 interface ProposalGeneratorProps {
   onViewProposal?: (id: string) => void;
@@ -17,6 +18,7 @@ export function ProposalGenerator({ onViewProposal }: ProposalGeneratorProps) {
   const [userPrompt, setUserPrompt] = useState('');
   const [selectedSchemeId, setSelectedSchemeId] = useState<string | null>(null);
   const [selectedIdea, setSelectedIdea] = useState<Idea | null>(null);
+  const [selectedPartners, setSelectedPartners] = useState<any[]>([]);
   const [proposal, setProposal] = useState<FullProposal | null>(null);
 
   const handleUrlSubmit = (result: AnalysisResult, url: string, prompt: string, schemeId: string | null) => {
@@ -29,6 +31,11 @@ export function ProposalGenerator({ onViewProposal }: ProposalGeneratorProps) {
 
   const handleSelectIdea = (idea: Idea) => {
     setSelectedIdea(idea);
+    setCurrentStep('partners');
+  };
+
+  const handlePartnersConfirmed = (partners: any[]) => {
+    setSelectedPartners(partners);
     setCurrentStep('proposal');
   };
 
@@ -52,6 +59,11 @@ export function ProposalGenerator({ onViewProposal }: ProposalGeneratorProps) {
     setProposal(null);
   };
 
+  const handleBackToPartners = () => {
+    setCurrentStep('partners');
+    setProposal(null);
+  };
+
   return (
     <div className="p-6">
       {currentStep === 'url-input' && (
@@ -68,14 +80,38 @@ export function ProposalGenerator({ onViewProposal }: ProposalGeneratorProps) {
         />
       )}
 
+      {currentStep === 'partners' && selectedIdea && (
+        <div className="flex flex-col items-center justify-center min-h-[400px] space-y-6">
+          <div className="text-center space-y-2">
+            <h2 className="text-2xl font-bold italic text-white/90">Step 3: Select Partners</h2>
+            <p className="text-muted-foreground">Select the organizations that will participate in this project.</p>
+          </div>
+
+          <div className="bg-[#323232] border border-white/10 rounded-xl p-8 max-w-2xl w-full text-center space-y-6 shadow-xl">
+            <p className="text-white/70">
+              Click the button below to browse and select partners from your database.
+              The AI will use their profiles to tailor the technical and consortium sections.
+            </p>
+            <PartnerSelectionModal
+              isOpen={true}
+              onClose={handleBackToIdeas}
+              onConfirm={handlePartnersConfirmed}
+              selectedIdeaTitle={selectedIdea.title}
+              proposalContext={selectedIdea.description}
+            />
+          </div>
+        </div>
+      )}
+
       {currentStep === 'proposal' && selectedIdea && analysisResult && (
         <ProposalStep
           selectedIdea={selectedIdea}
           analysisResult={analysisResult}
+          selectedPartners={selectedPartners}
           userPrompt={userPrompt}
           selectedSchemeId={selectedSchemeId}
           onProposalGenerated={handleProposalGenerated}
-          onBack={handleBackToIdeas}
+          onBack={handleBackToPartners}
           onViewProposal={onViewProposal}
         />
       )}

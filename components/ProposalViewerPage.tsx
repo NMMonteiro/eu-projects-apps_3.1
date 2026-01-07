@@ -123,7 +123,7 @@ const ResponsiveSectionContent = ({ content }: { content: string }) => {
     return <div dangerouslySetInnerHTML={{ __html: processed }} />;
 };
 
-const DynamicPartnerSection = ({ partners }: { partners: import('../types/proposal').Partner[] }) => {
+const DynamicPartnerSection = ({ partners }: { partners: import('../types/partner').Partner[] }) => {
     if (!partners || partners.length === 0) {
         return <div className="p-4 text-center text-muted-foreground italic border border-dashed rounded-lg">No partners added yet. Please add partners in the 'Structured Data' tab to populate this section.</div>;
     }
@@ -301,9 +301,9 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
         if (!proposal) return;
 
         const newPartners = selectedPartners.map(p => ({
-            name: p.name,
-            role: 'Partner', // Default role
-            description: p.description // Optional: carry over description if needed in proposal partner type
+            ...p,
+            role: p.role || 'Partner',
+            isCoordinator: p.isCoordinator || false
         }));
 
         const updatedProposal = {

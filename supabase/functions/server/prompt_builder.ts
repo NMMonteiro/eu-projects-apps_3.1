@@ -9,6 +9,7 @@ export function buildPhase2Prompt(summary: string, constraints: any, userPrompt?
 ${userPrompt}
 
 CRITICAL: ALL project ideas MUST directly address these user requirements.
+If a specific budget or duration is mentioned above, it is a MANDATORY constraint.
 ============================================================
 
 CONTEXT SUMMARY: ${summary}
@@ -21,7 +22,7 @@ CONSTRAINTS:
 TASK: Generate 6-10 high-quality project ideas that DIRECTLY address the user requirements above.
 
 Each idea must:
-1. Clearly relate to the user's requirements
+1. Clearly relate to the user's requirements (e.g., if a specific topic or budget is mentioned, include it)
 2. Be feasible within the constraints
 3. Be innovative and impactful
 
@@ -79,7 +80,7 @@ export function buildRelevancePrompt(
   const basePrompt = userPrompt
     ? `Validate these project ideas against the user requirements and source content.
 
-USER REQUIREMENTS (PRIMARY CRITERION):
+USER REQUIREMENTS (PRIMARY CRITERION - MUST BE 100% SATISFIED):
 ${userPrompt}
 
 SOURCE URL: ${url}
@@ -89,6 +90,7 @@ PROJECT IDEAS:
 ${JSON.stringify(ideas, null, 2)}
 
 TASK: Evaluate how well the ideas address the user requirements AND align with the source content.
+If an idea deviates from a specific budget, duration, or topic mentioned in USER REQUIREMENTS, it must be scored 'Poor'.
 
 Scoring:
 - "Good": Ideas strongly address user requirements and align with source
@@ -140,7 +142,7 @@ export function buildProposalPrompt(
   fundingScheme?: any
 ): string {
   const partnerInfo = partners.length > 0
-    ? `\n\nCONSORTIUM PARTNERS:\n${partners.map(p => `- ${p.name} (${p.country || 'Country not specified'}): ${p.description || 'No description'}`).join('\n')}`
+    ? `\n\nCONSORTIUM PARTNERS:\n${partners.map(p => `- ${p.name}${p.acronym ? ` (${p.acronym})` : ''} - ${p.country || 'Country not specified'}${p.isCoordinator ? ' [LEAD COORDINATOR]' : ''}\n  - Profile: ${p.description || 'No description'}\n  - Expertise: ${p.experience || ''}\n  - Past Projects: ${p.relevantProjects || ''}`).join('\n')}`
     : '';
 
   const userRequirements = userPrompt
@@ -169,25 +171,32 @@ Description: ${idea.description}
 
 CONTEXT: ${summary}
 
-CONSTRAINTS:
+CONSTRAINTS & REQUIREMENTS:
+${userRequirements}
 - Partners: ${constraints.partners || 'Not specified'}
 - Budget: ${constraints.budget || 'Not specified'}
-- Duration: ${constraints.duration || 'Not specified'}${partnerInfo}${userRequirements}${dynamicSchemeInstructions}
+- Duration: ${constraints.duration || 'Not specified'}${partnerInfo}${dynamicSchemeInstructions}
 
-TASK: Generate a comprehensive funding proposal.${fundingScheme ? ' Follow the FUNDING SCHEME TEMPLATE structure provided above.' : ''}
+TASK: Generate a comprehensive but CONCISE funding proposal.${fundingScheme ? ' Follow the FUNDING SCHEME TEMPLATE structure provided above.' : ''}
+IMPORTANT: 
+- Keep each text section under 2000 characters.
+- Focus on quality over length. 
+- Avoid repeating context or generalities.
+- If you run out of space, ensure you close the JSON object properly.
 
-CRITICAL REQUIREMENTS:
-1. 🚨 HIGHEST PRIORITY: You MUST STRICTLY ADHERE to all constraints specified in the "MANDATORY USER REQUIREMENTS" section above.
-   - If the user specifies a MAX BUDGET (e.g. "50k"), the total budget MUST NOT exceed this amount.
-   - If the user specifies a DURATION, you must use exactly that duration.
-   - These user-defined constraints OVERRIDE any other defaults or inferred values.
-${userPrompt ? '' : '2. All sections must align with the project idea'}
-${userPrompt ? '2.' : '3.'} Use HTML formatting for text sections (<p>, <strong>, <ul>, <li>, etc.)
-${userPrompt ? '3.' : '4.'} Generate realistic budget in Euros with detailed breakdowns
-${userPrompt ? '4.' : '5.'} Create specific work packages with deliverables
-${userPrompt ? '5.' : '6.'} Include risk assessment matrix
-${userPrompt ? '6.' : '7.'} Generate monthly timeline
-${userPrompt ? '7.' : '8.'} Include a detailed Dissemination & Communication strategy
+STRICT ADHERENCE RULES (MANDATORY):
+1. 🚨 HIGHEST PRIORITY: You MUST STRICTLY ADHERE to all instructions in the "MANDATORY USER REQUIREMENTS" section.
+   - If the user specifies a BUDGET (e.g. "€250,000"), the TOTAL project budget MUST BE EXACTLY that amount (no more, no less). Adjust person-months or activities to match this total exactly.
+   - If the user specifies a DURATION (e.g. "12 months"), the project timeline MUST be exactly that length.
+   - If specific partners, technologies, or objectives are mentioned, they MUST be included.
+   - User-defined constraints OVERRIDE any other defaults or inferred values.
+2. All sections must align perfectly with the selected project idea and user requirements.
+3. Use HTML formatting for text sections (<p>, <strong>, <ul>, <li>, etc.)
+4. Generate a realistic budget in Euros with detailed breakdowns that sum up to the target budget.
+5. Create specific work packages with deliverables that fit within the specified duration.
+6. Include risk assessment matrix.
+7. Generate monthly timeline matching the specified duration.
+8. Include a detailed Dissemination & Communication strategy.
 
 OUTPUT FORMAT (JSON ONLY, no markdown):
 {
@@ -207,7 +216,14 @@ OUTPUT FORMAT (JSON ONLY, no markdown):
   "riskManagement": "<p>Risk management...</p>",
   "dissemination": "<p>Dissemination and communication strategy...</p>",
   "partners": [
-    { "name": "Partner Name", "role": "Role in project" }
+    { 
+      "name": "Partner Name", 
+      "acronym": "ACR",
+      "role": "Role in project", 
+      "isCoordinator": true,
+      "country": "Country",
+      "description": "Short description of role and contributions" 
+    }
   ],
   "workPackages": [
     {

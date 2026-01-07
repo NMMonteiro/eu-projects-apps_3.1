@@ -9,6 +9,7 @@ import type { AnalysisResult, Idea, FullProposal } from '../types/proposal';
 interface ProposalStepProps {
     selectedIdea: Idea;
     analysisResult: AnalysisResult;
+    selectedPartners: any[];
     userPrompt: string;
     selectedSchemeId: string | null;
     onProposalGenerated: (proposal: FullProposal) => void;
@@ -19,6 +20,7 @@ interface ProposalStepProps {
 export function ProposalStep({
     selectedIdea,
     analysisResult,
+    selectedPartners,
     userPrompt,
     selectedSchemeId,
     onProposalGenerated,
@@ -50,7 +52,7 @@ export function ProposalStep({
                     idea: selectedIdea,
                     summary: analysisResult.summary,
                     constraints: analysisResult.constraints,
-                    selectedPartners: [], // TODO: Add partner selection
+                    selectedPartners: selectedPartners.map(p => p.id),
                     userPrompt: userPrompt || undefined,
                     fundingSchemeId: selectedSchemeId || undefined,
                 }),

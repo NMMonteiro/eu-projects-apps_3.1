@@ -13,7 +13,7 @@
  */
 
 export const projectId: string = import.meta.env.VITE_SUPABASE_PROJECT_ID || "swvvyxuozwqvyaberqvu";
-export const publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InN3dnZ5eHVvendxdnlhYmVycXZ1Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjM1MjIwMDgsImV4cCI6MjA3OTA5ODAwOH0.jcCynwcnnYSosAgf9QSdx_2FCl9FOx3lTXSiM3n27xQ";
+export const publicAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY || "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJpc3MiOiJzdXBhYmFzZSIsImlhdCI6MTc2NjI0NDQ4MCwiZXhwIjo0OTIxOTE4MDgwLCJyb2xlIjoiYW5vbiJ9.sSgImIcunZK0AiKgHANYatEZKQ_d_-M9S2xTKFxf8wM";
 
 // Determines the backend URL based on the projectId.
 // If projectId is default "your-project-id", it assumes localhost.

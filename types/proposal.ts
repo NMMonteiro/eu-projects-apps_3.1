@@ -1,6 +1,7 @@
 // Proposal-related type definitions
 
 import type { FundingScheme, DynamicSections } from './funding-scheme';
+import type { Partner } from './partner';
 
 export interface Idea {
   title: string;
@@ -24,17 +25,7 @@ export interface RelevanceAnalysis {
   justification: string;
 }
 
-export interface Partner {
-  name: string;
-  role: string;
-  organisationId?: string;
-  country?: string;
-  city?: string; // May not always be populated depending on backend
-  description?: string;
-  experience?: string;
-  organizationType?: string;
-  website?: string;
-}
+// Partner type is now imported from partner.ts
 
 export interface WorkPackage {
   name: string;
@@ -89,9 +80,9 @@ export interface FullProposal {
   summary: string;
 
   // NEW: Funding Scheme Support (optional - for backward compatibility)
-  funding_scheme_id?: string; // Link to funding scheme template
-  funding_scheme?: FundingScheme; // Populated funding scheme object (from join)
-  dynamic_sections?: DynamicSections; // Dynamic content: { "excellence": "text...", "impact": "text..." }
+  fundingSchemeId?: string; // Link to funding scheme template
+  fundingScheme?: FundingScheme; // Populated funding scheme object (from join)
+  dynamicSections?: DynamicSections; // Dynamic content: { "excellence": "text...", "impact": "text..." }
 
   // Legacy hardcoded sections (kept for backward compatibility)
   relevance: string;
