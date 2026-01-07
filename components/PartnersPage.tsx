@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Loader2, Plus, Edit, Search, Building2, Globe, Mail, Upload, Trash2, User, Phone } from 'lucide-react';
+import { Loader2, Plus, Pencil, Search, Building2, Globe, Mail, Upload, Trash2, User, Phone } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -107,7 +107,7 @@ export function PartnersPage({ onEditPartner }: PartnersPageProps) {
                 <div>
                     <h2 className="text-2xl font-bold flex items-center gap-2 text-foreground">
                         <Building2 className="h-6 w-6 text-primary" />
-                        My Partners
+                        My Partners <span className="text-[10px] font-normal opacity-30 text-nowrap">v3.2</span>
                     </h2>
                     <p className="text-sm text-muted-foreground mt-1">
                         {partners.length} partner{partners.length !== 1 ? 's' : ''} in your consortium
@@ -308,14 +308,16 @@ export function PartnersPage({ onEditPartner }: PartnersPageProps) {
                             </div>
 
                             {/* Actions Column */}
-                            <div className="flex items-center gap-1.5 pl-2">
+                            <div className="flex items-center gap-2 pl-4 border-l border-white/10 ml-2">
                                 <Button
                                     onClick={() => onEditPartner && onEditPartner(partner.id)}
                                     variant="ghost"
-                                    size="icon"
-                                    className="h-9 w-9 rounded-lg hover:bg-primary/10 hover:text-primary transition-colors"
+                                    size="sm"
+                                    className="h-9 px-3 rounded-lg hover:bg-primary/20 hover:text-white transition-all text-white/60 flex items-center gap-2"
+                                    title="Edit Partner"
                                 >
-                                    <Edit className="h-4 w-4" />
+                                    <Pencil className="h-4.5 w-4.5" />
+                                    <span className="text-xs font-medium">Edit</span>
                                 </Button>
                                 <Button
                                     onClick={(e) => {
@@ -323,10 +325,12 @@ export function PartnersPage({ onEditPartner }: PartnersPageProps) {
                                         handleDeleteClick(partner.id, partner.name);
                                     }}
                                     variant="ghost"
-                                    size="icon"
-                                    className="h-9 w-9 rounded-lg hover:bg-destructive/10 hover:text-destructive text-muted-foreground transition-colors"
+                                    size="sm"
+                                    className="h-9 px-3 rounded-lg hover:bg-destructive/10 hover:text-destructive text-white/40 transition-all flex items-center gap-2"
+                                    title="Delete Partner"
                                 >
-                                    <Trash2 className="h-4 w-4" />
+                                    <Trash2 className="h-4.5 w-4.5" />
+                                    <span className="text-xs font-medium">Delete</span>
                                 </Button>
                             </div>
                         </div>
