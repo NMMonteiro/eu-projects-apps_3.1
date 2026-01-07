@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Download, Share2, FileText, LayoutGrid, Users, Calendar, DollarSign, AlertTriangle, CheckCircle2, Layers, Plus, Trash2, Settings, ChevronDown, Folder, Edit, Sparkles, MoreHorizontal, MoreVertical } from 'lucide-react';
+import { ArrowLeft, Download, Share2, FileText, LayoutGrid, Users, Calendar, DollarSign, AlertTriangle, CheckCircle2, Layers, Plus, Trash2, Settings, ChevronDown, Folder, Edit, Sparkles, MoreHorizontal, MoreVertical, Building2, Globe, Mail } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -1081,33 +1081,62 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                 Add Partner
                             </Button>
                         </div>
-                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <div className="flex flex-col gap-3">
                             {proposal.partners?.map((partner, idx) => (
-                                <Card key={idx} className="bg-card/30 border-border/40 hover:border-primary/30 transition-all hover:bg-card/50 group relative">
-                                    <CardHeader className="pb-2">
-                                        <div className="flex items-start justify-between gap-2">
-                                            <div className="flex-1">
-                                                <CardTitle className="text-base font-medium group-hover:text-primary transition-colors">
-                                                    {partner.name}
-                                                </CardTitle>
-                                                <CardDescription className="text-xs uppercase tracking-wide">
-                                                    {partner.role}
-                                                </CardDescription>
-                                            </div>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="h-7 w-7 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-white border border-red-500/20 shrink-0"
-                                                onClick={(e) => {
-                                                    e.stopPropagation();
-                                                    handleRemovePartnerClick(idx, partner.name);
-                                                }}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
+                                <div key={idx} className="flex items-center gap-4 p-4 border border-border/40 rounded-xl hover:border-primary/50 transition-all group bg-card/20 backdrop-blur-sm shadow-sm">
+                                    {/* Logo Column */}
+                                    <div className="shrink-0 w-12 h-12 flex items-center justify-center bg-white/5 rounded-lg border border-white/10 overflow-hidden">
+                                        {partner.logoUrl ? (
+                                            <img
+                                                src={partner.logoUrl}
+                                                alt={partner.name}
+                                                className="w-full h-full object-contain p-1"
+                                            />
+                                        ) : (
+                                            <Building2 className="w-6 h-6 text-muted-foreground/30" />
+                                        )}
+                                    </div>
+
+                                    {/* Content Column */}
+                                    <div className="flex-1 min-w-0">
+                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-1">
+                                            <h3 className="font-bold text-base group-hover:text-primary transition-colors truncate">
+                                                {partner.name}
+                                            </h3>
+                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 uppercase tracking-wider bg-primary/10 text-primary border-none">
+                                                {partner.role}
+                                            </Badge>
                                         </div>
-                                    </CardHeader>
-                                </Card>
+
+                                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
+                                            {partner.country && (
+                                                <div className="flex items-center">
+                                                    <Globe className="w-3 h-3 mr-1 text-primary/60" />
+                                                    {partner.country}
+                                                </div>
+                                            )}
+                                            {(partner.contactPersonEmail || partner.contactEmail) && (
+                                                <div className="flex items-center truncate max-w-[200px]">
+                                                    <Mail className="w-3 h-3 mr-1 text-primary/60" />
+                                                    {partner.contactPersonEmail || partner.contactEmail}
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* Actions */}
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-white border border-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
+                                        onClick={(e) => {
+                                            e.stopPropagation();
+                                            handleRemovePartnerClick(idx, partner.name);
+                                        }}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
                             ))}
                         </div>
                     </section>
