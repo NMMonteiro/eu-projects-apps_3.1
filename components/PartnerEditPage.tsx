@@ -452,14 +452,14 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                                             <Button
                                                 variant="destructive"
                                                 size="icon"
-                                                className="absolute -top-2 -right-2 h-8 w-8 rounded-full shadow-xl flex items-center justify-center p-0 hover:scale-110 transition-transform bg-red-600 hover:bg-red-700 border-2 border-white"
+                                                className="absolute -top-2 -right-2 h-7 w-7 rounded-full shadow-lg flex items-center justify-center bg-red-600 hover:bg-red-700 border-2 border-white z-10"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleDeleteClick('logo');
                                                 }}
                                                 title="Remove Logo"
                                             >
-                                                <Trash2 className="h-4 w-4 text-white" />
+                                                <X className="h-4 w-4 text-white stroke-[3px]" />
                                             </Button>
                                         </div>
                                     ) : (
@@ -517,7 +517,7 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                             {/* PDF Upload */}
                             <div className="space-y-2">
                                 <Label>Partner Profile (PDF)</Label>
-                                <div className="p-4 bg-white/5 rounded-lg border border-white/10">
+                                <div className="p-4 bg-white/5 rounded-lg border border-white/10 relative">
                                     {partner.pdfUrl ? (
                                         <div className="flex items-center justify-between mb-4">
                                             <div className="flex items-center gap-2 text-sm text-primary">
@@ -529,14 +529,14 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                                             <Button
                                                 variant="destructive"
                                                 size="icon"
-                                                className="absolute -top-2 -right-2 h-8 w-8 rounded-full shadow-xl flex items-center justify-center p-0 hover:scale-110 transition-transform bg-red-600 hover:bg-red-700 border-2 border-white"
+                                                className="absolute -top-2 -right-2 h-7 w-7 rounded-full shadow-lg flex items-center justify-center bg-red-600 hover:bg-red-700 border-2 border-white z-10"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleDeleteClick('pdf');
                                                 }}
                                                 title="Remove PDF"
                                             >
-                                                <Trash2 className="h-4 w-4 text-white" />
+                                                <X className="h-4 w-4 text-white stroke-[3px]" />
                                             </Button>
                                         </div>
                                     ) : (
