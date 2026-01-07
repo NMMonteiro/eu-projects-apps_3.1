@@ -180,6 +180,18 @@ export function PartnerSelectionModal({ isOpen, onClose, onConfirm, selectedIdea
                                         onCheckedChange={() => toggleSelection(partner.id)}
                                         className="mt-1"
                                     />
+                                    {/* Logo Column */}
+                                    <div className="shrink-0 w-12 h-12 flex items-center justify-center bg-white/5 rounded-lg border border-white/10 overflow-hidden">
+                                        {partner.logoUrl ? (
+                                            <img
+                                                src={partner.logoUrl}
+                                                alt={partner.name}
+                                                className="w-full h-full object-contain p-1"
+                                            />
+                                        ) : (
+                                            <Briefcase className="w-6 h-6 text-muted-foreground/30" />
+                                        )}
+                                    </div>
                                     <div className="flex-1 space-y-1">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
