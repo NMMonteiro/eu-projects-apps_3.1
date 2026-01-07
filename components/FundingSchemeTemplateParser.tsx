@@ -327,15 +327,27 @@ export function FundingSchemeTemplateParser() {
                                                             </div>
                                                         </div>
 
-                                                        <div className="space-y-2">
-                                                            <Label>Description / Instructions</Label>
-                                                            <Textarea
-                                                                value={section.description || ''}
-                                                                onChange={(e) => updateSection(idx, { description: e.target.value })}
-                                                                rows={2}
-                                                                className="resize-none"
-                                                                placeholder="Instructions for the AI on what to generate..."
-                                                            />
+                                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                            <div className="space-y-2">
+                                                                <Label>Description / Guidelines (Verbatim questions)</Label>
+                                                                <Textarea
+                                                                    value={section.description || ''}
+                                                                    onChange={(e) => updateSection(idx, { description: e.target.value })}
+                                                                    rows={3}
+                                                                    className="resize-none"
+                                                                    placeholder="The EXACT questions from the guidelines..."
+                                                                />
+                                                            </div>
+                                                            <div className="space-y-2">
+                                                                <Label>Generation AI Prompt (Custom instructions)</Label>
+                                                                <Textarea
+                                                                    value={section.aiPrompt || ''}
+                                                                    onChange={(e) => updateSection(idx, { aiPrompt: e.target.value })}
+                                                                    rows={3}
+                                                                    className="resize-none font-mono text-xs"
+                                                                    placeholder="Draft the section. Specifically address..."
+                                                                />
+                                                            </div>
                                                         </div>
 
                                                         <div className="flex flex-wrap items-center gap-4 pt-2">

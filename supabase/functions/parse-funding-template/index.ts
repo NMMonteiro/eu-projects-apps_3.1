@@ -126,86 +126,68 @@ serve(async (req) => {
 
         // Initialize Gemini AI
         const genAI = new GoogleGenerativeAI(Deno.env.get('GEMINI_API_KEY') ?? '')
-        // User requested gemini-2.5-pro or 3.0, but for stability we use the known stable version.
-        // If gemini-2.5-pro is valid, it can be swapped back, but we prioritize fixing the DOCX parse error first.
+        // Using Gemini 2.5 Pro as requested for maximum extraction precision and handling of high-density documents
         const model = genAI.getGenerativeModel({
-            model: 'gemini-2.5-flash-lite',
+            model: 'gemini-2.5-pro',
             generationConfig: {
-                temperature: 0.1, // Lower temperature for more consistent extraction
+                temperature: 0.0, // Absolute zero for deterministic, factual extraction
             }
         })
 
-        console.log('🤖 Analyzing document with AI...')
+        console.log('🤖 Analyzing document with Gemini 2.5 Pro...')
 
-        const prompt = `You are an expert at analyzing EU funding application guidelines and call documents.
+        const prompt = `You are a precision-oriented Document Analysis AI. Your mission is to extract the EXACT structure of an EU funding application form from the provided PDF/document.
 
-TASK: Analyze this document and extract the proposal application structure.
+### THE GOLD STANDARD FOR EXTRACTION:
+1. **LITERAL LABELS:** Extract section names exactly as they are written (e.g., "Work package n°2 -"). Do not correct grammar or capitalize differently.
+2. **VERBATIM QUESTIONS:** Within each section, find every question or instruction and copy it LITERALLY. 
+   - Look for text in boxes, bulleted prompts, or italicized instructions.
+   - Example: If the form says "What are the concrete objectives you would like to achieve?", do not summarize it as "Define objectives." Copy the whole question.
+   - Place all these verbatim questions in the "description" field.
+3. **ZERO NOISE:**
+   - DO NOT extract page numbers ("1 / 20", "Page 5").
+   - DO NOT extract form metadata ("Form ID KA220-YOU...", "Deadline (Brussels Time)...").
+   - DO NOT extract footer/header repetitions.
+4. **HIERARCHY IS KEY:** 
+   - Use the "Table of Contents" (usually on page 2 or 3) as your roadmap.
+   - Maintain the nested structure (e.g., "Relevance" has subsections "Priorities and Topics", "Project description", etc.).
+   - Use the "subsections" array for this.
+5. **AI PROMPT GENERATION:** Create a surgical "aiPrompt" for the generation engine. It must say: "Draft the [Label] section. Answer these specific questions verbatim from the guidelines: [List verbatim questions]. Use a professional, technical, and persuasive tone."
 
-For each section in the document, identify:
-1. Section name/title (e.g., "1. Excellence", "Part B - Impact", "Project description")
-2. A unique key in snake_case (e.g., "excellence", "project_description")
-3. Order/sequence number (1, 2, 3...)
-4. Character limit, word limit, or page limit (if specified in the document)
-5. Whether the section is mandatory or optional
-6. Any subsections (nested structure)
-7. **CRITICAL:** Extract specific QUESTIONS, PROMPTS, or INSTRUCTIONS found within that section.
-   - Look for questions in grey boxes, bullet points, or paragraphs following the header.
-   - Example: "What are the concrete objectives?", "Please outline the target groups...", "How does the project address..."
-   - **Combine these questions verbatim into the 'description' field.**
-   - **Also create a comprehensive 'aiPrompt' that instructs an AI to answer these specific questions.**
+### SECTION MAPPING (Surgical Accuracy):
+- **Context:** Extract title, start date, duration, agency.
+- **Project Summary:** Capture the specific bullet points required (Context, Objectives, Participants, Methodology, Results/Impact).
+- **Participating Organisations:** Ensure you capture the "Background and experience" sub-questions for both coordinators and partners.
+- **Relevance:** Capture "Priorities and Topics", "創新 (Innovation)", "Complementarity", "EU Added Value", and the "Needs Analysis" prompts.
+- **Project Design:** Capture Monitoring, Budget Control, Risk Handling, Digital tools, and Green practices.
+- **Work Packages:** Capture specific WP objectives, results, indicators, and task allocations.
 
-LOOK FOR PATTERNS LIKE:
-- Section headings: "Section 1:", "Part A:", "Question 1:", "Criterion 1:", "1.", "2.", etc.
-- **Questions:** Text often appears in boxes, italicized, or as a list of questions that MUST be answered.
-- Limits: "Maximum 5000 characters", "Max 3 pages", "Word limit: 2000", "up to 10 pages", "5000 characters max"
-- Requirements: "Mandatory", "Required", "Optional", "If applicable", "Compulsory", "Must be completed"
-
-COMMON SECTION NAMES TO LOOK FOR:
-- Excellence / Scientific Excellence
-- Objectives / Specific Objectives
-- State of the Art / Background
-- Methodology / Methods / Approach
-- Impact / Expected Impact
-- Dissemination / Exploitation / Communication
-- Implementation / Work Plan / Project Management
-- Resources / Consortium / Partners
-- Budget / Budget Justification
-- Ethics / Ethical Issues
-- Data Management
-- Relevance
-- Project description (Erasmus+)
-
-IMPORTANT rules for 'description' and 'aiPrompt':
-- **description**: Must contain the EXACT questions found in the document. Do not summarize them if specific questions are listed. Concatenate them clearly.
-- **aiPrompt**: Write a prompt for an AI that says "Draft the [Section Name] section. Specifically address: [List of questions found]. Ensure the tone is professional and persuasive."
-
-Return ONLY valid JSON in this EXACT format (no markdown, no code blocks, no extra text):
+Return ONLY a perfectly formatted JSON object.
 
 {
-  "fundingScheme": "${fundingSchemeName || 'Extracted Funding Scheme'}",
+  "fundingScheme": "Exact Name of the Programme/Action",
   "extractedFrom": "${fileUrl}",
   "sections": [
     {
-      "key": "project_description",
-      "label": "Project description",
-      "charLimit": null,
-      "wordLimit": null,
-      "pageLimit": null,
+      "key": "unique_snake_case_key",
+      "label": "Exact literal label from document",
+      "type": "textarea" | "richtext" | "structured",
+      "charLimit": number | null,
+      "wordLimit": number | null,
       "mandatory": true,
-      "order": 1,
-      "description": "What are the concrete objectives you would like to achieve? How are these objectives linked to the priorities? Please outline the target groups...",
-      "aiPrompt": "Draft the Project Description section. Specifically address: 1) Concrete objectives and outcomes, 2) Link to priorities, 3) Target groups and their needs. Ensure the response is detailed and addresses all points.",
-      "subsections": []
+      "order": number,
+      "description": "ALL VERBATIM QUESTIONS AND PROMPTS CONCATENATED",
+      "aiPrompt": "Draft the [Label] section by answering: [Question 1]? [Question 2]? ...",
+      "subsections": [ /* Nested version of this structure */ ]
     }
   ],
   "metadata": {
-    "totalCharLimit": 50000,
-    "totalWordLimit": null,
-    "estimatedDuration": "3-4 hours"
+    "totalCharLimit": number | null,
+    "estimatedDuration": "string"
   }
 }
 
-Return ONLY the JSON object, nothing else.`
+Return ONLY the raw JSON object. No explanation.`
 
         // Send document to Gemini for analysis
         const result = await model.generateContent([
