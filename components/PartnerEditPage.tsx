@@ -86,45 +86,19 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
             }
 
             const data = await response.json();
-            const transformedPartner: Partner = {
-                id: data.id,
-                name: data.name || '',
+            setPartner({
+                ...data,
+                // Ensure empty strings for critical fields user mentioned
                 acronym: data.acronym || '',
-                organisationId: data.organisation_id || '',
-                pic: data.pic || '',
-                vatNumber: data.vat_number || '',
-                businessId: data.business_id || '',
-                organizationType: data.organization_type || '',
-                isPublicBody: data.is_public_body || false,
-                isNonProfit: data.is_non_profit || false,
-                country: data.country || '',
-                legalAddress: data.legal_address || '',
-                city: data.city || '',
-                postcode: data.postcode || '',
-                region: data.region || '',
-                contactEmail: data.contact_email || '',
-                website: data.website || '',
-                description: data.description || '',
-                department: data.department || '',
-                keywords: data.keywords || [],
-                logoUrl: data.logo_url || undefined,
-                pdfUrl: data.pdf_url || undefined,
-                legalRepName: data.legal_rep_name || '',
-                legalRepPosition: data.legal_rep_position || '',
-                legalRepEmail: data.legal_rep_email || '',
-                legalRepPhone: data.legal_rep_phone || '',
-                contactPersonName: data.contact_person_name || undefined,
-                contactPersonPosition: data.contact_person_position || '',
-                contactPersonEmail: data.contact_person_email || undefined,
-                contactPersonPhone: data.contact_person_phone || undefined,
-                contactPersonRole: data.contact_person_role || '',
-                experience: data.experience || undefined,
-                staffSkills: data.staff_skills || '',
-                relevantProjects: data.relevant_projects || '',
-                createdAt: data.created_at || new Date().toISOString(),
-                role: data.role || '', // Assuming role might be missing from API
-            };
-            setPartner(transformedPartner);
+                vatNumber: data.vatNumber || '',
+                businessId: data.businessId || '',
+                organisationId: data.organisationId || '',
+                experience: data.experience || '',
+                staffSkills: data.staffSkills || '',
+                relevantProjects: data.relevantProjects || '',
+                // Ensure array for keywords
+                keywords: Array.isArray(data.keywords) ? data.keywords : [],
+            } as Partner);
         } catch (error: any) {
             console.error('Load error:', error);
             toast.error(error.message || 'Failed to load partner');
@@ -507,18 +481,17 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                                                 alt="Partner Logo"
                                                 className="w-full h-full object-contain"
                                             />
-                                            <Button
-                                                variant="destructive"
-                                                size="icon"
-                                                className="absolute -top-2.5 -right-2.5 h-7 w-7 rounded-full shadow-lg flex items-center justify-center bg-red-600 hover:bg-red-700 border-2 border-white z-50 overflow-visible"
+                                            <button
+                                                type="button"
+                                                className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-lg border-2 border-white z-[100] cursor-pointer"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleDeleteClick('logo');
                                                 }}
                                                 title="Remove Logo"
                                             >
-                                                <span className="text-white text-lg font-bold leading-none select-none" style={{ marginTop: '-2px' }}>&times;</span>
-                                            </Button>
+                                                <span className="text-sm font-bold leading-none">X</span>
+                                            </button>
                                         </div>
                                     ) : (
                                         <div className="w-24 h-24 bg-white/5 rounded-lg border border-dashed border-white/20 flex items-center justify-center text-muted-foreground">
@@ -584,18 +557,17 @@ export function PartnerEditPage({ partnerId, onBack }: PartnerEditPageProps) {
                                                     View Uploaded PDF
                                                 </a>
                                             </div>
-                                            <Button
-                                                variant="destructive"
-                                                size="icon"
-                                                className="absolute -top-2.5 -right-2.5 h-7 w-7 rounded-full shadow-lg flex items-center justify-center bg-red-600 hover:bg-red-700 border-2 border-white z-50 overflow-visible"
+                                            <button
+                                                type="button"
+                                                className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-600 hover:bg-red-700 text-white flex items-center justify-center shadow-lg border-2 border-white z-[100] cursor-pointer"
                                                 onClick={(e) => {
                                                     e.stopPropagation();
                                                     handleDeleteClick('pdf');
                                                 }}
                                                 title="Remove PDF"
                                             >
-                                                <span className="text-white text-lg font-bold leading-none select-none" style={{ marginTop: '-2px' }}>&times;</span>
-                                            </Button>
+                                                <span className="text-sm font-bold leading-none">X</span>
+                                            </button>
                                         </div>
                                     ) : (
                                         <div className="text-sm text-muted-foreground mb-4 text-center py-2">
