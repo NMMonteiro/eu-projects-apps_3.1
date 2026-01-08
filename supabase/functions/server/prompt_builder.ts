@@ -224,10 +224,13 @@ CRITICAL INSTRUCTIONS:
 5. **JSON INTEGRITY**: Return ONLY valid JSON. If the content is long, prioritize completing the JSON structure.
 
 STRICT ADHERENCE RULES:
-- If a budget is specified in requirements, the total in the budget table must match exactly.
-- Each narrative section should be around 1500-2500 characters of high-quality text unless a limit is specified.
-- Use logical dates: Start date must be after Jan 2026. If duration is 18 months, end date must be exactly 18 months after start date.
-- Remove all "(dd/mm/yyyy)" placeholders from text.
+- If a budget total is specified in requirements (e.g. €250,000), the sum of all costs in the budget table MUST MATCH EXACTLY.
+- MANDATORY ITEMS & REALISTIC RESEARCH: If the user requirements mention specific items (e.g. "10 VR sets", "AI tools", "hosting"), you MUST include these with realistic current market pricing (VR headsets ~€500-€700 each, hosting ~€500-€2000/year, etc.).
+- DETAILED BREAKDOWN: Every main budget item MUST have at least 2-3 specific sub-items in the "breakdown" array (e.g., "Personnel" should break down into "Senior Researcher", "Project Admin", etc., each with quantity (months/units) and unit cost).
+- CATEGORIES TO INCLUDE: Hardware, Software Licences/Subscriptions (AI apps, etc.), Domains/Hosting, Travel & Subsistence, Dissemination Costs, and Staff/Expert Rates.
+- Each narrative section should provide detailed, technical content (approx 3-4 paragraphs).
+- Start Date must be after January 2026.
+- Remove all "(dd/mm/yyyy)" placeholders.
 - Format all euro amounts as €XX,XXX.
 
 
@@ -262,10 +265,13 @@ OUTPUT FORMAT (JSON ONLY, no markdown):
   ],
   "budget": [
     {
-      "item": "Personnel",
-      "cost": 0,
-      "description": "Staff costs breakdown",
-      "breakdown": []
+      "item": "Hardware & Equipment",
+      "cost": 6500,
+      "description": "Purchase of VR Headsets and local servers",
+      "breakdown": [
+        { "subItem": "Meta Quest 3 Headsets", "quantity": 10, "unitCost": 550, "total": 5500 },
+        { "subItem": "Local Media Server", "quantity": 1, "unitCost": 1000, "total": 1000 }
+      ]
     }
   ],
   "timeline": [

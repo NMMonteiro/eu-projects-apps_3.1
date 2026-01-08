@@ -14,6 +14,28 @@ const corsHeaders = {
     'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
 };
 
+const extractJSON = (text: string) => {
+    try {
+        // Find the first { and last }
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start !== -1 && end !== -1 && end > start) {
+            return JSON.parse(text.substring(start, end + 1));
+        }
+        // Fallback for [ array ]
+        const bStart = text.indexOf('[');
+        const bEnd = text.lastIndexOf(']');
+        if (bStart !== -1 && bEnd !== -1 && bEnd > bStart) {
+            return JSON.parse(text.substring(bStart, bEnd + 1));
+        }
+        return JSON.parse(text);
+    } catch (e) {
+        // Try cleaning markdown
+        const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleaned);
+    }
+};
+
 const getSupabaseClient = () => {
     const url = Deno.env.get('SUPABASE_URL') || '';
     const key = Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') || '';
@@ -106,6 +128,14 @@ Deno.serve(async (req) => {
     }
 
     try {
+        // ===== HEALTH CHECK =====
+        if (path === '/' || path === '') {
+            return new Response(
+                JSON.stringify({ status: 'ok', message: 'AI Proposal Generator API v2' }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
         // ===== PHASE 1: ANALYZE URL & GENERATE IDEAS =====
         if (path.includes('/analyze-url') && req.method === 'POST') {
             const { url: targetUrl, userPrompt } = await req.json();
@@ -124,22 +154,22 @@ Deno.serve(async (req) => {
 
             // Phase 1: Extract summary and constraints
             const phase1Prompt = `Analyze this funding call and extract key information.
-${userPrompt ? `\nUSER PROVIDED INSTRUCTIONS/TEXT (PARALLEL TO OR REPLACING URL CONTENT):\n${userPrompt}\n` : ''}
+${userPrompt ? `\nUSER PROVIDED INSTRUCTIONS/TEXT (THIS IS PARALLEL TO OR REPLACES URL CONTENT - USE THIS FOR BUDGET/DURATION): \n${userPrompt}\n` : ''}
 URL: ${targetUrl}
 CONTENT: ${content.substring(0, 5000)}
 
 Extract:
 1. A summary of the funding opportunity (incorporating user instructions if provided)
 2. Partner requirements
-3. Budget range (If the user specifies a specific budget, use that EXACTLY)
-4. Project duration (If the user specifies a specific duration, use that EXACTLY)
+3. Budget range (If a specific total budget like "€250,000" is mentioned in user text or URL, use that EXACT value)
+4. Project duration (If a specific duration like "24 months" or dates like "2026-2028" are mentioned, use that EXACT duration)
 
 Return JSON:
 {
   "summary": "Summary of the opportunity",
   "constraints": {
     "partners": "e.g., 3-5 partners required",
-    "budget": "e.g., €500,000",
+    "budget": "e.g., €250,000",
     "duration": "e.g., 24 months"
   }
 }
@@ -148,11 +178,14 @@ Return ONLY valid JSON, no other text.`;
 
             let phase1Data;
             try {
-                const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+                const model = ai.getGenerativeModel({
+                    model: 'gemini-2.0-flash',
+                    generationConfig: { temperature: 0.1 }
+                });
                 const phase1Result = await model.generateContent(phase1Prompt);
                 const phase1Text = phase1Result.response.text();
                 console.log('Phase 1 Raw Output:', phase1Text);
-                phase1Data = JSON.parse(phase1Text.replace(/```json/g, '').replace(/```/g, '').trim());
+                phase1Data = extractJSON(phase1Text);
             } catch (error: any) {
                 console.error('Phase 1 failed:', error);
                 return new Response(
@@ -170,7 +203,10 @@ Return ONLY valid JSON, no other text.`;
             // Phase 2: Generate ideas
             let phase2Data;
             try {
-                const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+                const model = ai.getGenerativeModel({
+                    model: 'gemini-2.0-flash',
+                    generationConfig: { temperature: 0.7 }
+                });
                 const phase2Prompt = PromptBuilder.buildPhase2Prompt(
                     phase1Data.summary,
                     phase1Data.constraints,
@@ -180,7 +216,7 @@ Return ONLY valid JSON, no other text.`;
                 const phase2Result = await model.generateContent(phase2Prompt);
                 const phase2Text = phase2Result.response.text();
                 console.log('Phase 2 Raw Output:', phase2Text);
-                phase2Data = JSON.parse(phase2Text.replace(/```json/g, '').replace(/```/g, '').trim());
+                phase2Data = extractJSON(phase2Text);
             } catch (error: any) {
                 console.error('Phase 2 failed:', error);
                 return new Response(
@@ -290,7 +326,8 @@ Return ONLY valid JSON, no other text.`;
             const model = ai.getGenerativeModel({
                 model: 'gemini-2.0-flash',
                 generationConfig: {
-                    temperature: 0.1,
+                    temperature: 0.2,
+                    maxOutputTokens: 8192
                 },
                 safetySettings: [
                     { category: 'HARM_CATEGORY_HARASSMENT', threshold: 'BLOCK_NONE' },
@@ -1163,22 +1200,32 @@ Return ONLY valid JSON, no other text.`;
 
             const detectResult = await model.generateContent(detectionPrompt);
             const detectText = detectResult.response.text();
-            const { section } = JSON.parse(detectText.replace(/```json/g, '').replace(/```/g, '').trim());
+            console.log('Detection Raw Output:', detectText);
+            const { section } = extractJSON(detectText);
 
-            // Step 2: Regenerate that section
+            // Special rules for structured sections
+            const structuredSections = ['budget', 'risks', 'workPackages', 'timeline', 'partners'];
+            const isStructured = structuredSections.includes(section);
+
             const editPrompt = `Current content of ${section}: ${JSON.stringify(proposal[section])}
 
 User instruction: ${instruction}
 
-Generate the NEW content for this section only. Maintain the same format (HTML string if it was HTML, array if it was array, etc.).
+TASK: Generate the NEW content for the "${section}" section only. 
 
-Return JSON: { "content": ... }
+CRITICAL RULES:
+1. DATA TYPE: If the section is one of [${structuredSections.join(', ')}], the content MUST be a JSON ARRAY of objects. DO NOT return a string or HTML for these sections.
+2. NARRATIVE: For other sections (summary, relevance, impact, etc.), provide detailed HTML content (<p>, <ul>, etc.).
+3. ARITHMETIC: If updating 'budget' and a total amount is specified, ensure all item costs sum up EXACTLY to that total.
+
+Return JSON: { "content": <Array OR String depending on section type> }
 
 Return ONLY valid JSON, no other text.`;
 
             const editResult = await model.generateContent(editPrompt);
             const editText = editResult.response.text();
-            const { content } = JSON.parse(editText.replace(/```json/g, '').replace(/```/g, '').trim());
+            console.log('Edit Raw Output:', editText);
+            const { content } = extractJSON(editText);
 
             // Update proposal
             proposal[section] = content;

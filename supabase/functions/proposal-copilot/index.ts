@@ -6,6 +6,20 @@ const corsHeaders = {
     'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 };
 
+const extractJSON = (text: string) => {
+    try {
+        const start = text.indexOf('{');
+        const end = text.lastIndexOf('}');
+        if (start !== -1 && end !== -1 && end > start) {
+            return JSON.parse(text.substring(start, end + 1));
+        }
+        return JSON.parse(text);
+    } catch (e) {
+        const cleaned = text.replace(/```json/g, '').replace(/```/g, '').trim();
+        return JSON.parse(cleaned);
+    }
+};
+
 Deno.serve(async (req) => {
     console.log('=== COPILOT REQUEST RECEIVED ===');
     console.log('Method:', req.method);
@@ -131,14 +145,16 @@ Deno.serve(async (req) => {
         const genAI = new GoogleGenerativeAI(apiKey);
         console.log('GoogleGenerativeAI instance created');
 
-        const model = genAI.getGenerativeModel({ model: 'gemini-2.5-flash-lite' });
-        console.log('Model instance created');
+        const model = genAI.getGenerativeModel({
+            model: 'gemini-2.0-flash',
+            generationConfig: {
+                temperature: 0.1, // Low temperature for precision
+                maxOutputTokens: 2048
+            }
+        });
+        console.log('Model instance created (Gemini 2.0 Flash)');
 
         console.log('Step 6: Starting chat...');
-
-        // Step 7: Analyze intent - Check if user wants to update/redo a section
-        // We use a lightweight check or a specific prompt to determine intent.
-        // For simplicity and robustness, we'll ask the model to output a specific JSON structure if it detects an update request.
 
         const chatHistory = [
             {
@@ -153,23 +169,30 @@ STRICT FORMATTING & LOGIC RULES:
 2. DO NOT include "(dd/mm/yyyy)" in any labels or headers.
 3. Currency MUST always be formatted with the symbol first and thousands separators, e.g., "€60,000".
 
+STRICT BUDGET & DATA TYPE RULES:
+- The following sections MUST BE JSON ARRAYS, not strings or HTML: 'budget', 'risks', 'workPackages', 'timeline', 'partners'.
+- If the user asks to update 'budget', your "content" field MUST be a JSON array of objects following the exact structure: [{ "item": "string", "description": "string", "cost": number, "breakdown": [{ "subItem": "string", "quantity": number, "unitCost": number, "total": number }] }].
+- REALISTIC RESEARCH & PRICING: Use current 2026 market rates. Examples: VR Headsets (Meta Quest 3 level) ~€550-€700; Senior Researcher/Expert rate ~€350-€500/day; Hosting/Metaverse infra ~€1,000-€3,000/year; AI API Subscriptions ~€50-€200/month.
+- DETAILED SUB-ITEMS: Do not provide empty breakdowns. Every budget category must have 2-4 specific sub-items (e.g., Personnel should break down into specific roles; Hardware should list specific devices).
+- EXACT ARITHMETIC: If the user specifies a total budget (e.g., "€250,000"), you MUST ensure the sum of all "cost" values in your budget array equals EXACTLY that amount. The "cost" of a main item must equal the sum of its "total" breakdown values.
+- For narrative sections (summary, relevance, impact, etc.), use HTML formatting (<p>, <ul>, etc.).
+
 To perform an update, your response MUST be a JSON object with this structure:
 {
   "action": "update_section",
   "section": "section_name_key",
-  "content": "The new content for the section...",
-  "explanation": "I have updated the section as requested."
+  "content": <String for narrative OR Array for structured sections>,
+  "explanation": "I have updated the budget using realistic market rates for 2026, including specific allocations for 10 VR sets, hosting, and AI tools as requested. The total is exactly €250,000."
 }
 
 The "section_name_key" must be one of the keys in the context (e.g., 'methodology', 'risks', 'budget', 'objectives', 'summary', etc.).
-The "content" should be the full new content for that section (HTML or text as appropriate).
 The "explanation" is what I will show to the user.
 
 If the user is just asking a question, reply with normal text (not JSON).` }],
             },
             {
                 role: "model",
-                parts: [{ text: "I understand. I will answer questions normally, but if asked to update a section, I will output the specific JSON format to trigger the update." }],
+                parts: [{ text: "I understand. I will maintain strict JSON array formats for structured data like budget and risks, and I will ensure arithmetic is exact to the cent." }],
             },
         ];
 
@@ -198,54 +221,51 @@ If the user is just asking a question, reply with normal text (not JSON).` }],
         console.log('Response text extracted, length:', text.length);
 
         // Check if response is JSON (action)
-        let responseData = { response: text };
+        let responseData: any = { response: text };
 
         try {
             // Attempt to find JSON in the response (in case of extra text)
-            const jsonMatch = text.match(/\{[\s\S]*\}/);
-            if (jsonMatch) {
-                const potentialJson = JSON.parse(jsonMatch[0]);
-                if (potentialJson.action === 'update_section' && potentialJson.section && potentialJson.content) {
-                    console.log('Action detected: update_section for', potentialJson.section);
+            const potentialJson = extractJSON(text);
+            if (potentialJson.action === 'update_section' && potentialJson.section && potentialJson.content) {
+                console.log('Action detected: update_section for', potentialJson.section);
 
-                    // Perform the update in the DB
-                    // Note: We need to update the KV store or the table depending on where it lives.
-                    // We already fetched 'proposal', so we know where it came from? 
-                    // Actually, we fetched it but didn't store the source.
-                    // However, we can just try updating the KV store first as that's the primary store for this app.
+                // Perform the update in the DB
+                // Note: We need to update the KV store or the table depending on where it lives.
+                // We already fetched 'proposal', so we know where it came from? 
+                // Actually, we fetched it but didn't store the source.
+                // However, we can just try updating the KV store first as that's the primary store for this app.
 
-                    const KV_TABLE_NAME = 'kv_store_3cb71dae';
+                const KV_TABLE_NAME = 'kv_store_3cb71dae';
 
-                    // Update the local object
-                    proposal[potentialJson.section] = potentialJson.content;
-                    proposal.updatedAt = new Date().toISOString();
+                // Update the local object
+                proposal[potentialJson.section] = potentialJson.content;
+                proposal.updatedAt = new Date().toISOString();
 
-                    // Save to KV
-                    const { error: updateError } = await supabase
-                        .from(KV_TABLE_NAME)
-                        .upsert({ key: proposalId, value: proposal });
+                // Save to KV
+                const { error: updateError } = await supabase
+                    .from(KV_TABLE_NAME)
+                    .upsert({ key: proposalId, value: proposal });
 
-                    if (updateError) {
-                        console.error('Failed to update KV:', updateError);
-                        // Fallback to 'proposals' table if UUID
-                        const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(proposalId);
-                        if (isUuid) {
-                            await supabase
-                                .from('proposals')
-                                .update({ [potentialJson.section]: potentialJson.content })
-                                .eq('id', proposalId);
-                        }
+                if (updateError) {
+                    console.error('Failed to update KV:', updateError);
+                    // Fallback to 'proposals' table if UUID
+                    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(proposalId);
+                    if (isUuid) {
+                        await supabase
+                            .from('proposals')
+                            .update({ [potentialJson.section]: potentialJson.content })
+                            .eq('id', proposalId);
                     }
-
-                    // Return the structured response
-                    responseData = {
-                        response: potentialJson.explanation || "Section updated successfully.",
-                        action: {
-                            type: 'update_section',
-                            section: potentialJson.section
-                        }
-                    };
                 }
+
+                // Return the structured response
+                responseData = {
+                    response: potentialJson.explanation || "Section updated successfully.",
+                    action: {
+                        type: 'update_section',
+                        section: potentialJson.section
+                    }
+                };
             }
         } catch (e) {
             // Not JSON or failed to parse, treat as normal text

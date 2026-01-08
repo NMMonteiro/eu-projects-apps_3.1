@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Download, Share2, FileText, LayoutGrid, Users, Calendar, DollarSign, AlertTriangle, CheckCircle2, Layers, Plus, Trash2, Settings, ChevronDown, Folder, Edit, Sparkles, MoreHorizontal, MoreVertical, Building2, Globe, Mail, Terminal } from 'lucide-react';
+import { ArrowLeft, Download, Share2, FileText, LayoutGrid, Users, Calendar, DollarSign, AlertTriangle, CheckCircle2, Layers, Plus, Trash2, Settings, ChevronDown, ChevronUp, Folder, Edit, Sparkles, MoreHorizontal, MoreVertical, Building2, Globe, Mail, Terminal } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
@@ -601,6 +601,16 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
         if (!proposal || !proposal.budget) return;
         const newBudget = [...proposal.budget];
         newBudget.splice(index, 1);
+        handleUpdateBudget(newBudget);
+    };
+
+    const handleMoveBudgetItem = (index: number, direction: 'up' | 'down') => {
+        if (!proposal || !proposal.budget) return;
+        const newBudget = [...proposal.budget];
+        const newIndex = direction === 'up' ? index - 1 : index + 1;
+        if (newIndex < 0 || newIndex >= newBudget.length) return;
+
+        [newBudget[index], newBudget[newIndex]] = [newBudget[newIndex], newBudget[index]];
         handleUpdateBudget(newBudget);
     };
 
@@ -1215,9 +1225,10 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                 <table className="w-full text-sm">
                                     <thead className="bg-secondary/50">
                                         <tr>
-                                            <th className="text-left py-3 px-4 font-medium text-muted-foreground w-[30%]">Item</th>
+                                            <th className="w-[8%]"></th>
+                                            <th className="text-left py-3 px-4 font-medium text-muted-foreground w-[27%]">Item</th>
                                             <th className="text-left py-3 px-4 font-medium text-muted-foreground w-[40%]">Description</th>
-                                            <th className="text-right py-3 px-4 font-medium text-muted-foreground w-[20%]">Cost</th>
+                                            <th className="text-right py-3 px-4 font-medium text-muted-foreground w-[15%]">Cost</th>
                                             <th className="w-[10%]"></th>
                                         </tr>
                                     </thead>
@@ -1226,6 +1237,28 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                             <React.Fragment key={idx}>
                                                 {/* Main Item Row */}
                                                 <tr className="hover:bg-white/5 transition-colors group bg-card/20">
+                                                    <td className="py-2 px-2">
+                                                        <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                disabled={idx === 0}
+                                                                className="h-5 w-5 hover:bg-primary/20"
+                                                                onClick={() => handleMoveBudgetItem(idx, 'up')}
+                                                            >
+                                                                <ChevronUp className="h-3 w-3" />
+                                                            </Button>
+                                                            <Button
+                                                                variant="ghost"
+                                                                size="icon"
+                                                                disabled={idx === (proposal.budget?.length || 0) - 1}
+                                                                className="h-5 w-5 hover:bg-primary/20"
+                                                                onClick={() => handleMoveBudgetItem(idx, 'down')}
+                                                            >
+                                                                <ChevronDown className="h-3 w-3" />
+                                                            </Button>
+                                                        </div>
+                                                    </td>
                                                     <td className="py-2 px-4">
                                                         <Input
                                                             value={item.item}
@@ -1252,7 +1285,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-7 w-7 rounded-md bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center"
+                                                                className="h-7 w-7 rounded-md bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-sm"
                                                                 onClick={() => handleAddSubItem(idx)}
                                                                 title="Add Sub-item"
                                                             >
@@ -1261,7 +1294,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                             <Button
                                                                 variant="ghost"
                                                                 size="icon"
-                                                                className="h-7 w-7 rounded-md bg-red-500/10 hover:bg-red-500/20 text-red-500 border border-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                className="h-7 w-7 rounded-md bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 transition-all"
                                                                 onClick={() => handleRemoveBudgetItem(idx)}
                                                                 title="Remove Item"
                                                             >
@@ -1277,7 +1310,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                     return (
                                                         <tr key={`${idx}-${subIdx}`} className={`hover:bg-white/5 transition-all duration-500 group ${isNewlyAdded ? 'bg-green-500/20 animate-pulse' : ''
                                                             }`}>
-                                                            <td className="py-1 px-4 pl-12 relative">
+                                                            <td className="py-1 px-4 pl-12 relative" colSpan={2}>
                                                                 <div className="absolute left-8 top-1/2 -translate-y-1/2 w-3 h-[1px] bg-border"></div>
                                                                 <Input
                                                                     value={sub.subItem}
@@ -1323,7 +1356,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                                 <Button
                                                                     variant="ghost"
                                                                     size="icon"
-                                                                    className="h-6 w-6 rounded-lg hover:bg-red-500/10 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
+                                                                    className="h-6 w-6 rounded-lg hover:bg-red-500 hover:text-white text-red-500 transition-colors"
                                                                     onClick={() => handleRemoveSubItem(idx, subIdx)}
                                                                 >
                                                                     <Trash2 className="h-3 w-3" />
