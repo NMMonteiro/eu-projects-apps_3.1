@@ -743,46 +743,43 @@ function createRiskTable(risks: any[]): Table {
 }
 
 function createDetailedPartnerProfile(partner: Partner): Table {
-  const lines: string[] = [
-    `Full Legal Name: ${partner.name}`,
-    `Legal Name (National Language): ${partner.legalNameNational || '-'}`,
-    `Acronym: ${partner.acronym || '-'}`,
-    `Organisation ID (OID/PIC): ${partner.organisationId || partner.pic || '-'}`,
-    `VAT Number: ${partner.vatNumber || '-'}`,
-    `Business Registration ID: ${partner.businessId || '-'}`,
-    `Organisation Type: ${partner.organizationType || '-'}`,
-    `Country: ${partner.country || '-'}`,
-    `Postcode: ${partner.postcode || '-'}`,
-    `City: ${partner.city || '-'}`,
-    `Legal Address: ${partner.legalAddress || '-'}`,
-    `Website: ${partner.website || '-'}`,
-    `Contact Person: ${partner.contactPersonName || '-'}`,
-    `Contact Email: ${partner.contactPersonEmail || partner.contactEmail || '-'}`,
-    `Phone: ${partner.contactPersonPhone || '-'}`,
-    `Role in Project: ${partner.role || partner.contactPersonRole || '-'}`,
+  const isCoord = partner.isCoordinator === true;
+  const lines: { label: string; value: string | undefined | null }[] = [
+    { label: "Full Legal Name", value: partner.name },
+    { label: "Legal Name (National Language)", value: partner.legalNameNational },
+    { label: "Acronym", value: partner.acronym },
+    { label: "Organisation ID (OID/PIC)", value: partner.organisationId || partner.pic },
+    { label: "VAT Number", value: partner.vatNumber },
+    { label: "Business Registration ID", value: partner.businessId },
+    { label: "Organisation Type", value: partner.organizationType },
+    { label: "Country", value: partner.country },
+    { label: "Postcode", value: partner.postcode },
+    { label: "City", value: partner.city },
+    { label: "Legal Address", value: partner.legalAddress },
+    { label: "Website", value: partner.website },
+    { label: "Contact Person", value: partner.contactPersonName },
+    { label: "Contact Email", value: partner.contactPersonEmail || partner.contactEmail },
+    { label: "Phone", value: partner.contactPersonPhone },
+    { label: "Role in Project", value: isCoord ? "Coordinator" : (partner.role || partner.contactPersonRole || "Partner") },
   ];
 
   const rows: TableRow[] = lines.map(line => {
-    const colonIndex = line.indexOf(':');
-    const key = line.substring(0, colonIndex).trim();
-    const value = line.substring(colonIndex + 1).trim();
-
     return new TableRow({
       children: [
         new TableCell({
           children: [new Paragraph({
-            children: [new TextRun({ text: key, bold: true, font: FONT, size: 18 })],
+            children: [new TextRun({ text: line.label, bold: true, font: FONT, size: 18 })],
             spacing: { before: 40, after: 40 }
           })],
-          width: { size: 30, type: WidthType.PERCENTAGE },
+          width: { size: 35, type: WidthType.PERCENTAGE },
           shading: { fill: "F9F9F9" }
         }),
         new TableCell({
           children: [new Paragraph({
-            children: [new TextRun({ text: value, font: FONT, size: 18 })],
+            children: [new TextRun({ text: line.value || "-", font: FONT, size: 18 })],
             spacing: { before: 40, after: 40 }
           })],
-          width: { size: 70, type: WidthType.PERCENTAGE }
+          width: { size: 65, type: WidthType.PERCENTAGE }
         })
       ]
     });
