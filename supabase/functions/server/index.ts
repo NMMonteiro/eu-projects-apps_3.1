@@ -297,7 +297,21 @@ Return ONLY valid JSON, no other text.`;
                         description: p.description,
                         experience: p.experience,
                         relevantProjects: p.relevant_projects,
-                        isCoordinator: selectedPartners.indexOf(p.id) === 0 // Assuming first one is coordinator for now or check a role
+                        // Include all fields for high-quality export
+                        organisationId: p.organisation_id || p.pic || '',
+                        pic: p.pic || '',
+                        vatNumber: p.vat_number || '',
+                        businessId: p.business_id || '',
+                        organizationType: p.organization_type || '',
+                        legalAddress: p.legal_address || '',
+                        city: p.city || '',
+                        postcode: p.postcode || '',
+                        website: p.website || '',
+                        contactPersonName: p.contact_person_name || '',
+                        contactPersonEmail: p.contact_person_email || p.contact_email || '',
+                        contactPersonPhone: p.contact_person_phone || '',
+                        role: p.role || '',
+                        isCoordinator: selectedPartners.indexOf(p.id) === 0
                     })));
                 }
 

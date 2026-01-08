@@ -333,6 +333,12 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
     const p = proposal;
     const currency = getCurrencySymbol(p.settings?.currency);
 
+    // Track what we have already rendered to avoid duplicates
+    let renderedPartners = false;
+    let renderedBudget = false;
+    let renderedRisks = false;
+    let renderedWorkPackages = false;
+
     // 1. TITLE PAGE
     docChildren.push(new Paragraph({ spacing: { before: 2000 } }));
 
@@ -439,12 +445,19 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
             }));
           }
 
-          // If it's a structured section or specifically for partners/WPs, prioritize structured data
-          const isPartnerSection = lowerKey.includes('partner') || lowerKey.includes('participating') || lowerTitle.includes('partner') || lowerTitle.includes('participating');
-          const isWPSection = lowerKey.includes('work_package') || lowerKey.includes('workpackage') || lowerTitle.includes('work package');
-          const isBudgetSection = lowerKey.includes('budget') || lowerTitle.includes('budget');
+          // If it's a structured section or specifically for partners/WPs/Budget/Risks, prioritize structured data
+          const isPartnerSection = (lowerKey.includes('partner') || lowerKey.includes('participating') || lowerTitle.includes('partner') || lowerTitle.includes('participating') || lowerTitle.includes('background and experience')) && !renderedPartners;
+          const isWPSection = (lowerKey.includes('work_package') || lowerKey.includes('workpackage') || lowerTitle.includes('work package')) && !renderedWorkPackages;
+          const isBudgetSection = (lowerKey.includes('budget') || lowerTitle.includes('budget')) && !renderedBudget;
+          const isRiskSection = (lowerKey.includes('risk') || lowerTitle.includes('risk')) && !renderedRisks;
+
+          // Always show narrative content first if available
+          if (content) {
+            docChildren.push(...convertHtmlToParagraphs(content, title));
+          }
 
           if (isPartnerSection && p.partners?.length > 0) {
+            renderedPartners = true;
             docChildren.push(createParagraph("Consortium Partner Profiles:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             p.partners.forEach((partner, pIdx) => {
               docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}${partner.acronym ? ` (${partner.acronym})` : ''}`, 3));
@@ -452,16 +465,18 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
               docChildren.push(new Paragraph({ text: "" })); // Spacer
             });
           } else if (isWPSection && p.workPackages?.length > 0) {
-            if (content) docChildren.push(...convertHtmlToParagraphs(content, title));
+            renderedWorkPackages = true;
             docChildren.push(createParagraph("Work Package Overview:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             docChildren.push(createWorkPackageTable(p.workPackages));
           } else if (isBudgetSection && p.budget?.length > 0) {
-            if (content) docChildren.push(...convertHtmlToParagraphs(content, title));
+            renderedBudget = true;
             docChildren.push(createParagraph("Detailed Budget Table:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             docChildren.push(createBudgetTable(p.budget, currency));
-          } else if (content) {
-            docChildren.push(...convertHtmlToParagraphs(content, title));
-          } else if (ts.type === 'structured') {
+          } else if (isRiskSection && p.risks?.length > 0) {
+            renderedRisks = true;
+            docChildren.push(createParagraph("Risk Assessment:", { bold: true, italic: true, color: COLOR_PRIMARY }));
+            docChildren.push(createRiskTable(p.risks));
+          } else if (ts.type === 'structured' && !content) {
             docChildren.push(createParagraph("[Structured data section]", { italic: true, color: "999999" }));
           }
 
@@ -503,118 +518,65 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
 
     docChildren.push(new Paragraph({ children: [new PageBreak()] }));
 
-    // 4. STRUCTURED DATA: PARTNERS
-    if (p.partners && p.partners.length > 0) {
+    // 4. FALLBACK STRUCTURED DATA (Only if not already rendered in dynamic sections)
+    if (!renderedPartners || !renderedBudget || !renderedRisks) {
       docChildren.push(createSectionHeader("Part C: Consortium and Resources", 1));
-      docChildren.push(createSectionHeader("Consortium Partners Overview", 2));
 
-      const partnerRows = [
-        new TableRow({
-          children: [
-            createTableHeaderCell("No."),
-            createTableHeaderCell("Partner Name"),
-            createTableHeaderCell("Country"),
-            createTableHeaderCell("Type"),
-          ]
-        }),
-        ...p.partners.map((pt, i) => new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: (i + 1).toString(), font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.name, bold: true, font: FONT, size: BODY_SIZE })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.country || "-", font: FONT, size: BODY_SIZE })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organizationType || "-", font: FONT, size: BODY_SIZE })] })] }),
-          ]
-        }))
-      ];
+      // PARTNERS FALLBACK
+      if (p.partners && p.partners.length > 0 && !renderedPartners) {
+        docChildren.push(createSectionHeader("Consortium Partners Overview", 2));
+        const partnerRows = [
+          new TableRow({
+            children: [
+              createTableHeaderCell("No."),
+              createTableHeaderCell("Partner Name"),
+              createTableHeaderCell("Country"),
+              createTableHeaderCell("Type"),
+            ]
+          }),
+          ...p.partners.map((pt, i) => new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: (i + 1).toString(), font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.name, bold: true, font: FONT, size: BODY_SIZE })] })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.country || "-", font: FONT, size: BODY_SIZE })] })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organizationType || "-", font: FONT, size: BODY_SIZE })] })] }),
+            ]
+          }))
+        ];
 
-      docChildren.push(new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: partnerRows,
-        borders: {
-          top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-          insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-        }
-      }));
-      docChildren.push(new Paragraph({ text: "" })); // Spacer
-
-      docChildren.push(createSectionHeader("Detailed Partner Profiles", 2));
-      p.partners.forEach((partner, pIdx) => {
-        docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}`, 3));
-        docChildren.push(createDetailedPartnerProfile(partner));
+        docChildren.push(new Table({
+          width: { size: 100, type: WidthType.PERCENTAGE },
+          rows: partnerRows,
+          borders: {
+            top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+            bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+            left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+            right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+            insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
+            insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
+          }
+        }));
         docChildren.push(new Paragraph({ text: "" })); // Spacer
-      });
-    }
 
-    // 5. STRUCTURED DATA: BUDGET
-    if (p.budget && p.budget.length > 0) {
-      docChildren.push(createSectionHeader("Project Budget Breakdown", 2));
+        docChildren.push(createSectionHeader("Detailed Partner Profiles", 2));
+        p.partners.forEach((partner, pIdx) => {
+          docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}`, 3));
+          docChildren.push(createDetailedPartnerProfile(partner));
+          docChildren.push(new Paragraph({ text: "" })); // Spacer
+        });
+      }
 
-      const budgetRows = [
-        new TableRow({
-          children: [
-            createTableHeaderCell("Resource Item"),
-            createTableHeaderCell("Description"),
-            createTableHeaderCell(`Cost (${currency})`),
-          ]
-        }),
-        ...p.budget.map(item => new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.item, bold: true, font: FONT, size: BODY_SIZE })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.description || "-", font: FONT, size: BODY_SIZE })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `${item.cost.toLocaleString()} ${currency}`, font: FONT, size: BODY_SIZE })], alignment: AlignmentType.RIGHT })] }),
-          ]
-        }))
-      ];
+      // BUDGET FALLBACK
+      if (p.budget && p.budget.length > 0 && !renderedBudget) {
+        docChildren.push(createSectionHeader("Project Budget Breakdown", 2));
+        docChildren.push(createBudgetTable(p.budget, currency));
+      }
 
-      docChildren.push(new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: budgetRows,
-        borders: {
-          top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-          insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-        }
-      }));
-    }
-
-    // 6. RISKS
-    if (p.risks && p.risks.length > 0) {
-      docChildren.push(createSectionHeader("Risk Management", 2));
-      const riskRows = [
-        new TableRow({
-          children: [
-            createTableHeaderCell("Risk"),
-            createTableHeaderCell("Impact"),
-            createTableHeaderCell("Mitigation Measures"),
-          ]
-        }),
-        ...p.risks.map(r => new TableRow({
-          children: [
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.risk, bold: true, font: FONT, size: BODY_SIZE })] })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.impact, font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
-            new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: r.mitigation, font: FONT, size: BODY_SIZE })] })] }),
-          ]
-        }))
-      ];
-      docChildren.push(new Table({
-        width: { size: 100, type: WidthType.PERCENTAGE },
-        rows: riskRows,
-        borders: {
-          top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-          insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-          insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-        }
-      }));
+      // RISKS FALLBACK
+      if (p.risks && p.risks.length > 0 && !renderedRisks) {
+        docChildren.push(createSectionHeader("Risk Management", 2));
+        docChildren.push(createRiskTable(p.risks));
+      }
     }
 
     // DOCUMENT ASSEMBLY with Header/Footer and Default Styles
@@ -697,13 +659,47 @@ function createBudgetTable(budget: any[], currency: string): Table {
           createTableHeaderCell(`Cost (${currency})`),
         ]
       }),
-      ...budget.map(item => new TableRow({
-        children: [
-          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.item, bold: true, font: FONT, size: BODY_SIZE })] })] }),
-          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.description || "-", font: FONT, size: BODY_SIZE })] })] }),
-          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `${item.cost.toLocaleString()} ${currency}`, font: FONT, size: BODY_SIZE })], alignment: AlignmentType.RIGHT })] }),
-        ]
-      }))
+      ...budget.flatMap(item => {
+        const rows = [
+          new TableRow({
+            children: [
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.item, bold: true, font: FONT, size: BODY_SIZE })] })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: item.description || "-", font: FONT, size: BODY_SIZE })] })] }),
+              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: `${item.cost.toLocaleString()} ${currency}`, font: FONT, size: BODY_SIZE, bold: true })], alignment: AlignmentType.RIGHT })] }),
+            ]
+          })
+        ];
+
+        // Add sub-items if they exist
+        if (item.breakdown && item.breakdown.length > 0) {
+          item.breakdown.forEach((sub: any) => {
+            rows.push(new TableRow({
+              children: [
+                new TableCell({
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: `  └ ${sub.subItem || sub.item || 'Sub-item'}`, font: FONT, size: 18, color: "666666" })]
+                  })],
+                  shading: { fill: "FCFCFC" }
+                }),
+                new TableCell({
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: `${sub.quantity || 1} x ${sub.unitCost ? sub.unitCost.toLocaleString() : sub.cost?.toLocaleString() || '0'}`, font: FONT, size: 18, color: "666666" })]
+                  })],
+                  shading: { fill: "FCFCFC" }
+                }),
+                new TableCell({
+                  children: [new Paragraph({
+                    children: [new TextRun({ text: `${(sub.total || sub.cost || 0).toLocaleString()} ${currency}`, font: FONT, size: 18, color: "666666" })],
+                    alignment: AlignmentType.RIGHT
+                  })],
+                  shading: { fill: "FCFCFC" }
+                }),
+              ]
+            }));
+          });
+        }
+        return rows;
+      })
     ],
     borders: {
       top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
