@@ -90,6 +90,13 @@ function sanitizeTitle(title: string): string {
  */
 function normalizePartner(p: any): Partner {
   if (!p) return {} as Partner;
+  // Determine if this partner is a coordinator
+  const isCoord =
+    p.isCoordinator === true ||
+    p.is_coordinator === true ||
+    (p.role && p.role.toLowerCase().includes('coord')) ||
+    (p.contactPersonRole && p.contactPersonRole.toLowerCase().includes('coord'));
+
   return {
     ...p,
     name: p.name || p.legal_name || p.legal_name_national || "Unknown Partner",
@@ -116,7 +123,9 @@ function normalizePartner(p: any): Partner {
     staffSkills: p.staffSkills || p.staff_skills || p.skills || "",
     experience: p.experience || p.expertise || "",
     relevantProjects: p.relevantProjects || p.relevant_projects || p.past_projects || "",
-    description: p.description || p.background || p.profile || ""
+    description: p.description || p.background || p.profile || "",
+    isCoordinator: isCoord,
+    role: isCoord ? "Coordinator" : (p.role || "Partner")
   };
 }
 
@@ -304,12 +313,17 @@ function convertHtmlToParagraphs(html: string | undefined | null, sectionTitle?:
   // 3. Fix squashed labels
   text = fixSquashedText(text);
 
-  // 4. Split into lines and join probable split labels (e.g., Name on one line, colon on next)
+  // 4. Split into lines and join probable split labels
   const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
   const lines: string[] = [];
 
   for (let i = 0; i < rawLines.length; i++) {
     let current = rawLines[i];
+
+    // Skip common AI placeholders for structured sections
+    if (current.toLowerCase().includes("details of the") && current.toLowerCase().includes("inserted here")) continue;
+    if (current.toLowerCase().includes("placeholder for") && current.toLowerCase().includes("table")) continue;
+    if (current.toLowerCase() === "details to be provided.") continue;
 
     // Look ahead: if current line has no colon, but next line does, join them if short
     // We increase window slightly to catch more AI output quirks
@@ -530,14 +544,17 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
           const isParticipating = lowerKey.includes('participating') || lowerTitle.includes('participating');
           const isBackground = lowerKey.includes('background') || lowerTitle.includes('background');
           const isPartner = lowerKey.includes('partner_organisation') || lowerTitle.includes('partner organisation');
+          const isApplicant = lowerKey.includes('applicant_organisation') || lowerTitle.includes('applicant organisation') || lowerTitle.includes('applicant');
           const isWP = lowerKey.includes('work_package') || lowerKey.includes('workpackage') || lowerTitle.includes('work package');
           const isBudget = lowerKey.includes('budget') || lowerTitle.includes('budget');
           const isRisk = lowerKey.includes('risk') || lowerTitle.includes('risk');
 
           if (content) {
-            const allowedNames = (isPartner || isParticipating || isBackground)
+            const allowedNames = (isPartner || isParticipating || isBackground || isApplicant)
               ? p.partners?.map(pt => pt.name)
               : undefined;
+
+            // If it's an applicant section and content is just placeholder, we might swap it later
             docChildren.push(...convertHtmlToParagraphs(content, title, allowedNames));
           }
 
@@ -545,11 +562,29 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
             renderedPartnersSummary = true;
             docChildren.push(createParagraph("Participating Organisations Summary:", { bold: true, italic: true, color: COLOR_PRIMARY }));
             docChildren.push(createPartnerListTable(p.partners.map(normalizePartner)));
-          } else if ((isPartner || isBackground) && p.partners?.length > 0 && !renderedPartnersDetailed) {
+          } else if ((isPartner || isBackground || isApplicant) && p.partners?.length > 0 && !renderedPartnersDetailed) {
             renderedPartnersDetailed = true;
-            docChildren.push(createParagraph("Consortium Partner Profiles (from Technical Database):", { bold: true, italic: true, color: COLOR_PRIMARY }));
+            docChildren.push(createParagraph("Institutional Profiles and Technical Capacity:", { bold: true, italic: true, color: COLOR_PRIMARY }));
+
+            // Special Case: If it's the Applicant section, specifically start with Coordinator
+            const coordinator = p.partners.find(pt => {
+              const n = normalizePartner(pt);
+              return n.isCoordinator;
+            });
+
+            if (isApplicant && coordinator) {
+              const partner = normalizePartner(coordinator);
+              docChildren.push(createSectionHeader(`Applicant: ${partner.name}`, 3));
+              docChildren.push(createDetailedPartnerProfile(partner));
+              docChildren.push(new Paragraph({ text: "" }));
+            }
+
+            // Then show all partners
             p.partners.forEach((rawPartner, pIdx) => {
               const partner = normalizePartner(rawPartner);
+              // Avoid duplicating coordinator if already shown in applicant section above (optional, but cleaner)
+              if (isApplicant && partner.isCoordinator) return;
+
               docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}${partner.acronym ? ` (${partner.acronym})` : ''}`, 3));
               docChildren.push(createDetailedPartnerProfile(partner));
               docChildren.push(new Paragraph({ text: "" }));
@@ -686,18 +721,36 @@ function createPartnerListTable(partners: Partner[]): Table {
         createTableHeaderCell("Partner Name"),
         createTableHeaderCell("Country"),
         createTableHeaderCell("Organisation ID (OID/PIC)"),
+        createTableHeaderCell("Role"),
         createTableHeaderCell("Type"),
       ]
     }),
-    ...partners.map((pt, i) => new TableRow({
-      children: [
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: (i + 1).toString(), font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.name, bold: true, font: FONT, size: BODY_SIZE })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.country || "-", font: FONT, size: BODY_SIZE })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organisationId || pt.pic || "-", font: FONT, size: BODY_SIZE })] })] }),
-        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organizationType || "-", font: FONT, size: 18 })] })] }),
-      ]
-    }))
+    ...partners.map((pt, i) => {
+      const normalized = normalizePartner(pt);
+      return new TableRow({
+        children: [
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: (i + 1).toString(), font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: normalized.name, bold: true, font: FONT, size: BODY_SIZE })] })] }),
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: normalized.country || "-", font: FONT, size: BODY_SIZE })] })] }),
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: normalized.organisationId || normalized.pic || "-", font: FONT, size: BODY_SIZE })] })] }),
+          new TableCell({
+            children: [
+              new Paragraph({
+                children: [
+                  new TextRun({
+                    text: normalized.isCoordinator ? "Coordinator" : (normalized.role || "Partner"),
+                    bold: normalized.isCoordinator,
+                    font: FONT,
+                    size: 18
+                  })
+                ]
+              })
+            ]
+          }),
+          new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: normalized.organizationType || "-", font: FONT, size: 18 })] })] }),
+        ]
+      })
+    })
   ];
 
   return new Table({

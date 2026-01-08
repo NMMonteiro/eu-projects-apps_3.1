@@ -287,8 +287,10 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                 const dbp = dbPartners.find(db => db.id === p.id);
                                 if (!dbp) return p;
                                 return {
-                                    ...p, // Keep project specific role/narrative
-                                    legalNameNational: dbp.legal_name_national || p.legalNameNational,
+                                    ...p, // Keep project specific role/narrative (isCoordinator if already set)
+                                    id: dbp.id,
+                                    name: dbp.name || p.name,
+                                    legalNameNational: dbp.legal_name_national || p.legalNameNational || p.name,
                                     acronym: dbp.acronym || p.acronym,
                                     organisationId: dbp.organisation_id || dbp.pic || p.organisationId,
                                     pic: dbp.pic || p.pic,
@@ -299,11 +301,21 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                     legalAddress: dbp.legal_address || p.legalAddress,
                                     city: dbp.city || p.city,
                                     postcode: dbp.postcode || p.postcode,
+                                    region: dbp.region || p.region,
                                     website: dbp.website || p.website,
                                     contactEmail: dbp.contact_email || p.contactEmail,
+                                    contactPersonName: dbp.contact_person_name || p.contactPersonName,
+                                    contactPersonEmail: dbp.contact_person_email || p.contactPersonEmail,
+                                    contactPersonPhone: dbp.contact_person_phone || p.contactPersonPhone,
+                                    contactPersonRole: dbp.contact_person_role || p.contactPersonRole,
+                                    legalRepName: dbp.legal_rep_name || p.legalRepName,
+                                    legalRepEmail: dbp.legal_rep_email || p.legalRepEmail,
+                                    legalRepPhone: dbp.legal_rep_phone || p.legalRepPhone,
+                                    legalRepPosition: dbp.legal_rep_position || p.legalRepPosition,
                                     experience: dbp.experience || p.experience,
                                     staffSkills: dbp.staff_skills || p.staffSkills,
                                     relevantProjects: dbp.relevant_projects || p.relevantProjects,
+                                    isCoordinator: p.isCoordinator ?? p.is_coordinator ?? dbp.is_coordinator ?? (p.role === 'Coordinator'),
                                     description: p.description || dbp.description // Prefer project-specific description
                                 };
                             });
