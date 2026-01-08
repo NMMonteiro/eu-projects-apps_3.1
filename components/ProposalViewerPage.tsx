@@ -208,6 +208,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
     const [aiEditInstruction, setAiEditInstruction] = useState('');
     const [isAiEditing, setIsAiEditing] = useState(false);
     const [showPrompt, setShowPrompt] = useState(false);
+    const [isExporting, setIsExporting] = useState(false);
 
     const formatCurrency = (amount: number) => {
         return new Intl.NumberFormat('en-US', {
@@ -295,6 +296,36 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
             toast.error(error.message || 'Failed to load proposal');
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleExportToDocx = async () => {
+        if (!proposal) return;
+
+        setIsExporting(true);
+        toast.info("Syncing and generating document...");
+
+        try {
+            // 1. Sync current state to database first (Data Consistency)
+            const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
+                method: 'PUT',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${publicAnonKey}`,
+                },
+                body: JSON.stringify(proposal),
+            });
+
+            if (!response.ok) throw new Error('Failed to sync proposal before export');
+
+            // 2. Trigger DOCX export
+            await exportToDocx(proposal);
+            toast.success("Proposal exported successfully!");
+        } catch (error) {
+            console.error('Export error:', error);
+            toast.error('Failed to export. Changes were saved but download failed.');
+        } finally {
+            setIsExporting(false);
         }
     };
 
@@ -805,10 +836,15 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                         <Settings className="h-5 w-5" />
                     </Button>
                     <Button
-                        onClick={() => proposal && exportToDocx(proposal)}
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(122,162,247,0.3)]"
+                        onClick={handleExportToDocx}
+                        disabled={isExporting || !proposal}
+                        className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(122,162,247,0.3)] disabled:opacity-70"
                     >
-                        <Download className="h-4 w-4 mr-2" />
+                        {isExporting ? (
+                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
+                        ) : (
+                            <Download className="h-4 w-4 mr-2" />
+                        )}
                         Export DOCX
                     </Button>
                 </div>

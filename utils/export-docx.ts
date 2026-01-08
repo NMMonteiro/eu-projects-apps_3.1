@@ -65,7 +65,9 @@ function createParagraph(text: string, options: { bold?: boolean; color?: string
  */
 function fixSquashedText(text: string): string {
   // Pattern: [lowercase|digit|bracket|parenthesis] followed by [Uppercase + lowercase + rest of label + colon]
-  return text.replace(/([a-z0-9\]\)])(?=[A-Z][a-z][a-zA-Z0-9\s\-\/\(\)\°]{2,60}:)/g, "$1\n");
+  // We make it more specific to avoid splitting CamelCase company names (e.g., TropicalAstral)
+  // We now require the "squashed" part to start with a period, newline or be at least 3 chars deep into a line.
+  return text.replace(/([a-z0-9\]\)])(?=[A-Z][a-z][a-zA-Z\s\-]{3,30}:)/g, "$1\n");
 }
 
 /**
@@ -126,7 +128,7 @@ function createSmartParagraph(text: string, options: { bullet?: number } = {}): 
     children: [
       new TextRun({ text: line, font: FONT, size: BODY_SIZE }),
     ],
-    spacing: { before: 120, after: 120 },
+    spacing: { before: 80, after: 80 },
     bullet: options.bullet !== undefined ? { level: options.bullet } : undefined,
   });
 }
@@ -242,7 +244,7 @@ function createWorkPackageTable(wps: WorkPackage[]): Table {
   });
 }
 
-function convertHtmlToParagraphs(html: string | undefined | null, sectionTitle?: string): (Paragraph | Table)[] {
+function convertHtmlToParagraphs(html: string | undefined | null, sectionTitle?: string, allowedNames?: string[]): (Paragraph | Table)[] {
   // 1. Clean HTML and get structured text
   let text = cleanHtml(html);
 
@@ -252,8 +254,46 @@ function convertHtmlToParagraphs(html: string | undefined | null, sectionTitle?:
   // 3. Fix squashed labels
   text = fixSquashedText(text);
 
-  // 4. Split into lines
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  // 4. Split into lines and join probable split labels (e.g., Name on one line, colon on next)
+  const rawLines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+  const lines: string[] = [];
+
+  for (let i = 0; i < rawLines.length; i++) {
+    let current = rawLines[i];
+
+    // Look ahead: if current line has no colon, but next line does, join them if short
+    // We increase window slightly to catch more AI output quirks
+    if (i < rawLines.length - 1 && !current.includes(':') && current.length < 50) {
+      const next = rawLines[i + 1];
+      const nextColon = next.indexOf(':');
+      if (nextColon >= 0 && nextColon < 30) {
+        current = current + " " + next;
+        i++; // Skip the next line as we've merged it
+      }
+    }
+
+    // Filtering Logic: If we have allowedNames and this line looks like a partner header
+    if (allowedNames && allowedNames.length > 0) {
+      const colonIdx = current.indexOf(':');
+      if (colonIdx > 0 && colonIdx < 60) {
+        const potentialName = current.substring(0, colonIdx).toLowerCase();
+        // Check if any allowed name is found in the header portion
+        const isMatch = allowedNames.some(name => {
+          const n = name.toLowerCase();
+          return potentialName.includes(n) || n.includes(potentialName);
+        });
+
+        // If it looks like a partner entry but doesn't match any of our partners, skip it!
+        if (!isMatch && (potentialName.length > 3)) {
+          console.log(`Filtering out hallucinated partner: ${potentialName}`);
+          continue;
+        }
+      }
+    }
+
+    lines.push(current);
+  }
+
   if (lines.length === 0) return [createParagraph("")];
 
   // 5. Special table-style for data-heavy sections
@@ -334,7 +374,8 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
     const currency = getCurrencySymbol(p.settings?.currency);
 
     // Track what we have already rendered to avoid duplicates
-    let renderedPartners = false;
+    let renderedPartnersSummary = false;
+    let renderedPartnersDetailed = false;
     let renderedBudget = false;
     let renderedRisks = false;
     let renderedWorkPackages = false;
@@ -446,19 +487,29 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
           }
 
           // If it's a structured section or specifically for partners/WPs/Budget/Risks, prioritize structured data
-          const isPartnerSection = (lowerKey.includes('partner') || lowerKey.includes('participating') || lowerTitle.includes('partner') || lowerTitle.includes('participating') || lowerTitle.includes('background and experience')) && !renderedPartners;
+          const isParticipatingSection = (lowerKey.includes('participating') || lowerTitle.includes('participating')) && !renderedPartnersSummary;
+          const isBackgroundSection = (lowerKey.includes('background') || lowerTitle.includes('background and experience')) && !renderedPartnersDetailed;
+          const isPartnerSection = (lowerKey.includes('partner_organisation') || lowerTitle.includes('partner organisation')) && !renderedPartnersDetailed;
+
           const isWPSection = (lowerKey.includes('work_package') || lowerKey.includes('workpackage') || lowerTitle.includes('work package')) && !renderedWorkPackages;
           const isBudgetSection = (lowerKey.includes('budget') || lowerTitle.includes('budget')) && !renderedBudget;
           const isRiskSection = (lowerKey.includes('risk') || lowerTitle.includes('risk')) && !renderedRisks;
 
           // Always show narrative content first if available
           if (content) {
-            docChildren.push(...convertHtmlToParagraphs(content, title));
+            const allowedNames = (isPartnerSection || isParticipatingSection || isBackgroundSection)
+              ? p.partners.flatMap(pt => [pt.name, pt.acronym].filter(Boolean) as string[])
+              : undefined;
+            docChildren.push(...convertHtmlToParagraphs(content, title, allowedNames));
           }
 
-          if (isPartnerSection && p.partners?.length > 0) {
-            renderedPartners = true;
-            docChildren.push(createParagraph("Consortium Partner Profiles:", { bold: true, italic: true, color: COLOR_PRIMARY }));
+          if (isParticipatingSection && p.partners?.length > 0) {
+            renderedPartnersSummary = true;
+            docChildren.push(createParagraph("Participating Organisations Summary:", { bold: true, italic: true, color: COLOR_PRIMARY }));
+            docChildren.push(createPartnerListTable(p.partners));
+          } else if ((isPartnerSection || isBackgroundSection) && p.partners?.length > 0) {
+            renderedPartnersDetailed = true;
+            docChildren.push(createParagraph("Consortium Partner Profiles (from Technical Database):", { bold: true, italic: true, color: COLOR_PRIMARY }));
             p.partners.forEach((partner, pIdx) => {
               docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}${partner.acronym ? ` (${partner.acronym})` : ''}`, 3));
               docChildren.push(createDetailedPartnerProfile(partner));
@@ -519,43 +570,13 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
     docChildren.push(new Paragraph({ children: [new PageBreak()] }));
 
     // 4. FALLBACK STRUCTURED DATA (Only if not already rendered in dynamic sections)
-    if (!renderedPartners || !renderedBudget || !renderedRisks) {
+    if (!renderedPartnersDetailed || !renderedBudget || !renderedRisks) {
       docChildren.push(createSectionHeader("Part C: Consortium and Resources", 1));
 
       // PARTNERS FALLBACK
-      if (p.partners && p.partners.length > 0 && !renderedPartners) {
+      if (p.partners && p.partners.length > 0 && !renderedPartnersDetailed) {
         docChildren.push(createSectionHeader("Consortium Partners Overview", 2));
-        const partnerRows = [
-          new TableRow({
-            children: [
-              createTableHeaderCell("No."),
-              createTableHeaderCell("Partner Name"),
-              createTableHeaderCell("Country"),
-              createTableHeaderCell("Type"),
-            ]
-          }),
-          ...p.partners.map((pt, i) => new TableRow({
-            children: [
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: (i + 1).toString(), font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.name, bold: true, font: FONT, size: BODY_SIZE })] })] }),
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.country || "-", font: FONT, size: BODY_SIZE })] })] }),
-              new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organizationType || "-", font: FONT, size: BODY_SIZE })] })] }),
-            ]
-          }))
-        ];
-
-        docChildren.push(new Table({
-          width: { size: 100, type: WidthType.PERCENTAGE },
-          rows: partnerRows,
-          borders: {
-            top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-            bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-            left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-            right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-            insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-            insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-          }
-        }));
+        docChildren.push(createPartnerListTable(p.partners));
         docChildren.push(new Paragraph({ text: "" })); // Spacer
 
         docChildren.push(createSectionHeader("Detailed Partner Profiles", 2));
@@ -647,6 +668,42 @@ export async function exportToDocx(proposal: FullProposal): Promise<void> {
 }// ============================================================================
 // TABLE HELPERS
 // ============================================================================
+
+function createPartnerListTable(partners: Partner[]): Table {
+  const rows = [
+    new TableRow({
+      children: [
+        createTableHeaderCell("No."),
+        createTableHeaderCell("Partner Name"),
+        createTableHeaderCell("Country"),
+        createTableHeaderCell("Organisation ID (OID/PIC)"),
+        createTableHeaderCell("Type"),
+      ]
+    }),
+    ...partners.map((pt, i) => new TableRow({
+      children: [
+        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: (i + 1).toString(), font: FONT, size: BODY_SIZE })], alignment: AlignmentType.CENTER })] }),
+        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.name, bold: true, font: FONT, size: BODY_SIZE })] })] }),
+        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.country || "-", font: FONT, size: BODY_SIZE })] })] }),
+        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organisationId || pt.pic || "-", font: FONT, size: BODY_SIZE })] })] }),
+        new TableCell({ children: [new Paragraph({ children: [new TextRun({ text: pt.organizationType || "-", font: FONT, size: 18 })] })] }),
+      ]
+    }))
+  ];
+
+  return new Table({
+    width: { size: 100, type: WidthType.PERCENTAGE },
+    rows,
+    borders: {
+      top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
+      insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
+    }
+  });
+}
 
 function createBudgetTable(budget: any[], currency: string): Table {
   return new Table({
@@ -803,7 +860,7 @@ function createDetailedPartnerProfile(partner: Partner): Table {
                 children: [new TextRun({ text: field.label, bold: true, font: FONT, size: 18, color: COLOR_PRIMARY })],
                 spacing: { before: 80, after: 40 }
               }),
-              ...convertHtmlToParagraphs(field.value)
+              ...convertHtmlToParagraphs(field.value, field.label)
             ],
             columnSpan: 2,
             shading: { fill: "FFFFFF" }

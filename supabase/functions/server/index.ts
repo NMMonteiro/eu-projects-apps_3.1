@@ -493,6 +493,8 @@ Return ONLY valid JSON, no other text.`;
             if (constraints.duration) customParams.push({ key: 'Duration', value: constraints.duration });
             if (constraints.partners) customParams.push({ key: 'Partner Requirements', value: constraints.partners });
 
+            proposal.partners = partners;
+
             proposal.settings = {
                 currency: 'EUR',
                 sourceUrl: '',
