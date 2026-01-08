@@ -65,6 +65,19 @@ Deno.serve(async (req) => {
     const url = new URL(req.url);
     const path = url.pathname;
 
+    // ===== HEALTH CHECK =====
+    if (path.includes('/health')) {
+        return new Response(
+            JSON.stringify({
+                status: 'ok',
+                time: new Date().toISOString(),
+                has_key: !!Deno.env.get('GEMINI_API_KEY'),
+                project: 'swvvyxuozwqvyaberqvu'
+            }),
+            { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+        );
+    }
+
     // Diagnostic endpoint
     if (path.includes('/test-ai')) {
         try {
@@ -93,14 +106,6 @@ Deno.serve(async (req) => {
     }
 
     try {
-        // ===== HEALTH CHECK =====
-        if (path === '/' || path === '') {
-            return new Response(
-                JSON.stringify({ status: 'ok', message: 'AI Proposal Generator API v2' }),
-                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
-            );
-        }
-
         // ===== PHASE 1: ANALYZE URL & GENERATE IDEAS =====
         if (path.includes('/analyze-url') && req.method === 'POST') {
             const { url: targetUrl, userPrompt } = await req.json();
@@ -146,6 +151,7 @@ Return ONLY valid JSON, no other text.`;
                 const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
                 const phase1Result = await model.generateContent(phase1Prompt);
                 const phase1Text = phase1Result.response.text();
+                console.log('Phase 1 Raw Output:', phase1Text);
                 phase1Data = JSON.parse(phase1Text.replace(/```json/g, '').replace(/```/g, '').trim());
             } catch (error: any) {
                 console.error('Phase 1 failed:', error);
@@ -153,6 +159,7 @@ Return ONLY valid JSON, no other text.`;
                     JSON.stringify({
                         error: 'Analysis failed (Phase 1)',
                         message: error.message,
+                        details: error.toString(),
                         model: 'gemini-2.0-flash',
                         hint: 'This error often occurs if the Gemini model name is invalid or the API key is not authorized for this specific model.'
                     }),
@@ -172,6 +179,7 @@ Return ONLY valid JSON, no other text.`;
 
                 const phase2Result = await model.generateContent(phase2Prompt);
                 const phase2Text = phase2Result.response.text();
+                console.log('Phase 2 Raw Output:', phase2Text);
                 phase2Data = JSON.parse(phase2Text.replace(/```json/g, '').replace(/```/g, '').trim());
             } catch (error: any) {
                 console.error('Phase 2 failed:', error);
@@ -179,6 +187,7 @@ Return ONLY valid JSON, no other text.`;
                     JSON.stringify({
                         error: 'Idea generation failed (Phase 2)',
                         message: error.message,
+                        details: error.toString(),
                         model: 'gemini-2.0-flash'
                     }),
                     { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
@@ -317,22 +326,18 @@ Return ONLY valid JSON, no other text.`;
                 proposal = JSON.parse(cleanedText);
             } catch (parseError: any) {
                 console.error('Initial JSON parse failed. Attempting repair...', parseError.message);
+                console.error('Original Text first 500 chars:', cleanedText.substring(0, 500));
 
-                // Truncation repair: Attempting to close open JSON structures
                 let repairedText = cleanedText;
-
-                // Remove trailing garbage that would prevent closing braces from working
                 repairedText = repairedText
-                    .replace(/,\s*$/, '')      // Remove trailing comma
-                    .replace(/:\s*$/, '')      // Remove trailing colon
-                    .replace(/:\s*"[^"]*$/, '') // Remove trailing key that has an open quote value
-                    .replace(/,\s*"[^"]*$/, '') // Remove trailing key that was just started
-                    .replace(/"\s*$/, '');     // Remove trailing open quote
+                    .replace(/,\s*$/, '')
+                    .replace(/:\s*$/, '')
+                    .replace(/:\s*"[^"]*$/, '')
+                    .replace(/,\s*"[^"]*$/, '')
+                    .replace(/"\s*$/, '');
 
-                // If it ends with a key start like "key
                 repairedText = repairedText.replace(/"[^"]+$/, '');
 
-                // Count braces and brackets to close them
                 const openBraces = (repairedText.match(/{/g) || []).length;
                 const closeBraces = (repairedText.match(/}/g) || []).length;
                 const openBrackets = (repairedText.match(/\[/g) || []).length;
@@ -347,7 +352,6 @@ Return ONLY valid JSON, no other text.`;
                     console.log('Advanced JSON repair successful!');
                 } catch (secondError: any) {
                     console.error('Advanced JSON repair failed:', secondError.message);
-                    // Final attempt: Very aggressive truncation to last good property
                     try {
                         const lastGoodIndex = repairedText.lastIndexOf('",');
                         if (lastGoodIndex !== -1) {
@@ -366,9 +370,13 @@ Return ONLY valid JSON, no other text.`;
                             throw new Error('Could not find a safe truncation point.');
                         }
                     } catch (finalError) {
-                        throw new Error(`AI generated a response that was too long or malformed. Length: ${text.length} chars. Error: ${parseError.message}`);
+                        throw new Error(`JSON parsing failed after all repairs. Length: ${text.length}. Sample: ${cleanedText.substring(cleanedText.length - 200)}`);
                     }
                 }
+            }
+
+            if (!proposal || typeof proposal !== 'object') {
+                throw new Error("AI returned a response that is not a valid JSON object.");
             }
 
             // Add the prompt to the proposal object
@@ -892,7 +900,7 @@ Return ONLY valid JSON, no other text.`;
                 // AI Parsing
                 const ai = getAI();
                 // Reverting to 2.0-flash-exp as requested
-                const model = ai.getGenerativeModel({ model: 'gemini-2.0-flash' });
+                const model = ai.getGenerativeModel({ model: 'gemini-1.5-flash' });
 
                 const prompt = `Extract all possible partner organization information from the attached PDF file (PIF - Partner Information Form).
                 
@@ -1263,7 +1271,12 @@ Return ONLY valid JSON, no other text.`;
         }
 
         return new Response(
-            JSON.stringify({ error: error.message || 'Internal server error', details: error.toString() }),
+            JSON.stringify({
+                error: error.message || 'Internal server error',
+                details: error.toString(),
+                stack: error.stack,
+                phase: 'Global Catch'
+            }),
             { status: 500, headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
         );
     }

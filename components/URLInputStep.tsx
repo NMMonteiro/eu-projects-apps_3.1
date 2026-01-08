@@ -78,7 +78,8 @@ export function URLInputStep({ onSubmit }: URLInputStepProps) {
         if (response.status === 429) {
           throw new Error('⏰ API Quota Limit Reached. Please try again later.');
         }
-        throw new Error('Failed to analyze');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.details || errorData.message || errorData.error || 'Failed to analyze funding call. Check console for details.');
       }
 
       const data: AnalysisResult = await response.json();
