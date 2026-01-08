@@ -70,30 +70,53 @@ function fixSquashedText(text: string): string {
   return text.replace(/([a-z0-9\]\)])(?=[A-Z][a-z][a-zA-Z\s\-]{3,30}:)/g, "$1\n");
 }
 
+function sanitizeTitle(title: string): string {
+  if (!title) return "";
+  let clean = title.replace(/^undefined\s*/gi, '');
+  // If it's just "applicant organisation" or similar, make it professional
+  if (/^applicant\s*organisation/i.test(clean) || clean.toLowerCase() === 'applicant') {
+    return "Applicant Organisation";
+  }
+  // Remove numbers at start like "1. " or "2. "
+  clean = clean.replace(/^\d+[\.\)\s-]+\s*/, '');
+  // Replace underscores with spaces
+  clean = clean.replace(/_/g, ' ');
+  // Title case
+  return clean.replace(/\b\w/g, l => l.toUpperCase()).trim();
+}
+
 /**
  * Normalizes a partner object to handle both snake_case and camelCase
  */
 function normalizePartner(p: any): Partner {
+  if (!p) return {} as Partner;
   return {
     ...p,
-    organisationId: p.organisationId || p.organisation_id || p.pic,
-    vatNumber: p.vatNumber || p.vat_number,
-    businessId: p.businessId || p.business_id,
-    organizationType: p.organizationType || p.organization_type,
-    legalNameNational: p.legalNameNational || p.legal_name_national,
-    legalAddress: p.legalAddress || p.legal_address,
-    contactEmail: p.contactEmail || p.contact_email,
-    legalRepName: p.legalRepName || p.legal_rep_name,
-    legalRepPosition: p.legalRepPosition || p.legal_rep_position,
-    legalRepEmail: p.legalRepEmail || p.legal_rep_email,
-    legalRepPhone: p.legalRepPhone || p.legal_rep_phone,
-    contactPersonName: p.contactPersonName || p.contact_person_name,
-    contactPersonPosition: p.contactPersonPosition || p.contact_person_position,
-    contactPersonEmail: p.contactPersonEmail || p.contact_person_email,
-    contactPersonPhone: p.contactPersonPhone || p.contact_person_phone,
-    contactPersonRole: p.contactPersonRole || p.contact_person_role,
-    staffSkills: p.staffSkills || p.staff_skills,
-    relevantProjects: p.relevantProjects || p.relevant_projects,
+    name: p.name || p.legal_name || p.legal_name_national || "Unknown Partner",
+    organisationId: p.organisationId || p.organisation_id || p.pic || p.oid || p.picNumber || "",
+    vatNumber: p.vatNumber || p.vat_number || p.vat || "",
+    businessId: p.businessId || p.business_id || p.registration_id || "",
+    organizationType: p.organizationType || p.organization_type || p.type || "",
+    legalNameNational: p.legalNameNational || p.legal_name_national || p.name || "",
+    legalAddress: p.legalAddress || p.legal_address || p.address || "",
+    country: p.country || p.legal_country || "",
+    city: p.city || p.legal_city || "",
+    postcode: p.postcode || p.post_code || p.legal_postcode || "",
+    website: p.website || p.url || "",
+    contactEmail: p.contactEmail || p.contact_email || p.email || "",
+    legalRepName: p.legalRepName || p.legal_rep_name || p.rep_name || "",
+    legalRepPosition: p.legalRepPosition || p.legal_rep_position || p.rep_position || "",
+    legalRepEmail: p.legalRepEmail || p.legal_rep_email || p.rep_email || "",
+    legalRepPhone: p.legalRepPhone || p.legal_rep_phone || p.rep_phone || "",
+    contactPersonName: p.contactPersonName || p.contact_person_name || p.contact_name || "",
+    contactPersonPosition: p.contactPersonPosition || p.contact_person_position || p.contact_position || "",
+    contactPersonEmail: p.contactPersonEmail || p.contact_person_email || p.contact_person_email_address || "",
+    contactPersonPhone: p.contactPersonPhone || p.contact_person_phone || "",
+    contactPersonRole: p.contactPersonRole || p.contact_person_role || "",
+    staffSkills: p.staffSkills || p.staff_skills || p.skills || "",
+    experience: p.experience || p.expertise || "",
+    relevantProjects: p.relevantProjects || p.relevant_projects || p.past_projects || "",
+    description: p.description || p.background || p.profile || ""
   };
 }
 
@@ -488,10 +511,13 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
       const processSectionsObject = (sectionsArr: any[], level = 2) => {
         [...sectionsArr].sort((a, b) => (a.order || 0) - (b.order || 0)).forEach(ts => {
           const content = dyn[ts.key];
-          const title = ts.label;
+          const title = sanitizeTitle(ts.label);
           const description = ts.description; // Verbatim questions
-          const lowerKey = ts.key.toLowerCase();
+          const lowerKey = ts.key?.toLowerCase() || "";
           const lowerTitle = title.toLowerCase();
+
+          // Skip if title becomes empty or remains junk after sanitization
+          if (!title || title.toLowerCase().includes('undefined')) return;
 
           // Heading level (clamped to docx limits if necessary, though 2-4 is usually safe)
           docChildren.push(createSectionHeader(title, Math.min(level, 4)));
@@ -540,7 +566,7 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
           if (isParticipatingSection && p.partners?.length > 0) {
             renderedPartnersSummary = true;
             docChildren.push(createParagraph("Participating Organisations Summary:", { bold: true, italic: true, color: COLOR_PRIMARY }));
-            docChildren.push(createPartnerListTable(p.partners));
+            docChildren.push(createPartnerListTable(p.partners.map(normalizePartner)));
           } else if ((isPartnerSection || isBackgroundSection) && p.partners?.length > 0) {
             renderedPartnersDetailed = true;
             docChildren.push(createParagraph("Consortium Partner Profiles (from Technical Database):", { bold: true, italic: true, color: COLOR_PRIMARY }));
