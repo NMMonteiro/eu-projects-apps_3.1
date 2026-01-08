@@ -251,7 +251,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
 
             const data = await response.json();
 
-            // Enrich with Funding Scheme data if ID exists but object is missing
+            // 1. Enrich with Funding Scheme data if ID exists but object is missing
             if (data.funding_scheme_id && !data.funding_scheme) {
                 try {
                     const { data: scheme } = await supabase
@@ -260,15 +260,56 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                         .eq('id', data.funding_scheme_id)
                         .single();
                     if (scheme) {
-                        console.log("Funding Scheme Loaded:", scheme);
-                        // toast.info(`Loaded Scheme: ${scheme.name} (Logo: ${scheme.logo_url ? 'Yes' : 'No'})`);
+                        data.fundingScheme = scheme;
                         data.funding_scheme = scheme;
                     }
                 } catch (e) {
                     console.warn('Could not fetch linked funding scheme details', e);
                 }
-            } else if (data.funding_scheme) {
-                console.log("Funding Scheme already present:", data.funding_scheme);
+            }
+
+            // 2. HYDRATE PARTNERS (Critical for DOCX technical data)
+            // Even if partners are stored, they might be missing full technical metadata (OID, VAT, etc.)
+            if (data.partners && data.partners.length > 0) {
+                try {
+                    const partnerIds = data.partners.map((p: any) => p.id).filter(Boolean);
+                    if (partnerIds.length > 0) {
+                        const { data: dbPartners } = await supabase
+                            .from('partners')
+                            .select('*')
+                            .in('id', partnerIds);
+
+                        if (dbPartners && dbPartners.length > 0) {
+                            // Merge DB metadata into current partners (preserving project-specific roles/descriptions)
+                            data.partners = data.partners.map((p: any) => {
+                                const dbp = dbPartners.find(db => db.id === p.id);
+                                if (!dbp) return p;
+                                return {
+                                    ...p, // Keep project specific role/narrative
+                                    legalNameNational: dbp.legal_name_national || p.legalNameNational,
+                                    acronym: dbp.acronym || p.acronym,
+                                    organisationId: dbp.organisation_id || dbp.pic || p.organisationId,
+                                    pic: dbp.pic || p.pic,
+                                    vatNumber: dbp.vat_number || p.vatNumber,
+                                    businessId: dbp.business_id || p.businessId,
+                                    organizationType: dbp.organization_type || p.organizationType,
+                                    country: dbp.country || p.country,
+                                    legalAddress: dbp.legal_address || p.legalAddress,
+                                    city: dbp.city || p.city,
+                                    postcode: dbp.postcode || p.postcode,
+                                    website: dbp.website || p.website,
+                                    contactEmail: dbp.contact_email || p.contactEmail,
+                                    experience: dbp.experience || p.experience,
+                                    staffSkills: dbp.staff_skills || p.staffSkills,
+                                    relevantProjects: dbp.relevant_projects || p.relevantProjects,
+                                    description: p.description || dbp.description // Prefer project-specific description
+                                };
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error hydrating partners:", error);
+                }
             }
 
             setProposal(data);

@@ -66,8 +66,35 @@ function createParagraph(text: string, options: { bold?: boolean; color?: string
 function fixSquashedText(text: string): string {
   // Pattern: [lowercase|digit|bracket|parenthesis] followed by [Uppercase + lowercase + rest of label + colon]
   // We make it more specific to avoid splitting CamelCase company names (e.g., TropicalAstral)
-  // We now require the "squashed" part to start with a period, newline or be at least 3 chars deep into a line.
+  // We now require the "squashed" part to start with a newline or be at least 3 chars deep into a line.
   return text.replace(/([a-z0-9\]\)])(?=[A-Z][a-z][a-zA-Z\s\-]{3,30}:)/g, "$1\n");
+}
+
+/**
+ * Normalizes a partner object to handle both snake_case and camelCase
+ */
+function normalizePartner(p: any): Partner {
+  return {
+    ...p,
+    organisationId: p.organisationId || p.organisation_id || p.pic,
+    vatNumber: p.vatNumber || p.vat_number,
+    businessId: p.businessId || p.business_id,
+    organizationType: p.organizationType || p.organization_type,
+    legalNameNational: p.legalNameNational || p.legal_name_national,
+    legalAddress: p.legalAddress || p.legal_address,
+    contactEmail: p.contactEmail || p.contact_email,
+    legalRepName: p.legalRepName || p.legal_rep_name,
+    legalRepPosition: p.legalRepPosition || p.legal_rep_position,
+    legalRepEmail: p.legalRepEmail || p.legal_rep_email,
+    legalRepPhone: p.legalRepPhone || p.legal_rep_phone,
+    contactPersonName: p.contactPersonName || p.contact_person_name,
+    contactPersonPosition: p.contactPersonPosition || p.contact_person_position,
+    contactPersonEmail: p.contactPersonEmail || p.contact_person_email,
+    contactPersonPhone: p.contactPersonPhone || p.contact_person_phone,
+    contactPersonRole: p.contactPersonRole || p.contact_person_role,
+    staffSkills: p.staffSkills || p.staff_skills,
+    relevantProjects: p.relevantProjects || p.relevant_projects,
+  };
 }
 
 /**
@@ -277,6 +304,13 @@ function convertHtmlToParagraphs(html: string | undefined | null, sectionTitle?:
       const colonIdx = current.indexOf(':');
       if (colonIdx > 0 && colonIdx < 60) {
         const potentialName = current.substring(0, colonIdx).toLowerCase();
+
+        // Remove "Undefined" prefixes or common trash labels
+        if (potentialName.includes('undefined') || potentialName.includes('applicant organisation')) {
+          console.log(`Filtering out trash header: ${potentialName}`);
+          continue;
+        }
+
         // Check if any allowed name is found in the header portion
         const isMatch = allowedNames.some(name => {
           const n = name.toLowerCase();
@@ -284,7 +318,7 @@ function convertHtmlToParagraphs(html: string | undefined | null, sectionTitle?:
         });
 
         // If it looks like a partner entry but doesn't match any of our partners, skip it!
-        if (!isMatch && (potentialName.length > 3)) {
+        if (!isMatch && (potentialName.length > 4)) {
           console.log(`Filtering out hallucinated partner: ${potentialName}`);
           continue;
         }
@@ -510,7 +544,8 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
           } else if ((isPartnerSection || isBackgroundSection) && p.partners?.length > 0) {
             renderedPartnersDetailed = true;
             docChildren.push(createParagraph("Consortium Partner Profiles (from Technical Database):", { bold: true, italic: true, color: COLOR_PRIMARY }));
-            p.partners.forEach((partner, pIdx) => {
+            p.partners.forEach((rawPartner, pIdx) => {
+              const partner = normalizePartner(rawPartner);
               docChildren.push(createSectionHeader(`${pIdx + 1}. ${partner.name}${partner.acronym ? ` (${partner.acronym})` : ''}`, 3));
               docChildren.push(createDetailedPartnerProfile(partner));
               docChildren.push(new Paragraph({ text: "" })); // Spacer
@@ -542,7 +577,11 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
     } else {
       // Legacy Fallback / Flat iteration
       Object.entries(dyn).forEach(([key, content], idx) => {
-        const title = key.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
+        // Sanitize key (remove AI artifacts like "undefined_")
+        let cleanKey = key.replace(/^undefined_/i, '').replace(/_undefined$/i, '');
+        if (cleanKey === 'undefined' || !cleanKey) cleanKey = `Section ${idx + 1}`;
+
+        const title = cleanKey.replace(/_/g, " ").replace(/\b\w/g, l => l.toUpperCase());
         const lowerTitle = title.toLowerCase();
 
         docChildren.push(createSectionHeader(`${idx + 1}. ${title}`, 2));
@@ -799,7 +838,8 @@ function createRiskTable(risks: any[]): Table {
   });
 }
 
-function createDetailedPartnerProfile(partner: Partner): Table {
+function createDetailedPartnerProfile(rawPartner: Partner): Table {
+  const partner = normalizePartner(rawPartner);
   const isCoord = partner.isCoordinator === true;
   const lines: { label: string; value: string | undefined | null }[] = [
     { label: "Full Legal Name", value: partner.name },

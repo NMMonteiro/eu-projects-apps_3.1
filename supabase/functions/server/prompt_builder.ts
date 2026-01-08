@@ -222,6 +222,7 @@ CRITICAL INSTRUCTIONS:
 3. **VERBATIM QUESTIONS**: Check the descriptions/instructions for each section and ensure you answer every verbatim question asked in the guidelines.
 4. **STYLE**: Use HTML formatting (<p>, <strong>, <ul>, <li>).
 5. **JSON INTEGRITY**: Return ONLY valid JSON. If the content is long, prioritize completing the JSON structure.
+6. **STRICT NAMING**: NEVER use the word "undefined" in any JSON key or content heading. If a field is unknown, omit it or use a professional generic title.
 
 STRICT ADHERENCE RULES:
 - If a budget total is specified in requirements (e.g. €250,000), the sum of all costs in the budget table MUST MATCH EXACTLY.
