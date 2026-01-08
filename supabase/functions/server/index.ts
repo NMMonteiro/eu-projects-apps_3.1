@@ -597,14 +597,27 @@ Return ONLY valid JSON, no other text.`;
             const mappedPartners = partners.map(p => ({
                 id: p.id,
                 name: p.name,
+                legalNameNational: p.legal_name_national,
                 acronym: p.acronym,
                 country: p.country,
                 logoUrl: p.logo_url,
+                organisationId: p.organisation_id,
+                pic: p.pic,
+                vatNumber: p.vat_number,
+                businessId: p.business_id,
+                organizationType: p.organization_type,
+                legalAddress: p.legal_address,
+                city: p.city,
+                postcode: p.postcode,
                 contactPersonName: p.contact_person_name,
                 contactPersonPhone: p.contact_person_phone,
                 contactPersonEmail: p.contact_person_email,
                 contactEmail: p.contact_email,
-                organizationType: p.organization_type,
+                description: p.description,
+                experience: p.experience,
+                staffSkills: p.staff_skills,
+                relevantProjects: p.relevant_projects,
+                keywords: p.keywords,
                 createdAt: p.created_at
             }));
 
