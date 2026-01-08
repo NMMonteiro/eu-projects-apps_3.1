@@ -274,12 +274,14 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                 try {
                     const partnerIds = data.partners.map((p: any) => p.id).filter(Boolean);
                     if (partnerIds.length > 0) {
+                        console.log("Hydrating partners with IDs:", partnerIds);
                         const { data: dbPartners } = await supabase
                             .from('partners')
                             .select('*')
                             .in('id', partnerIds);
 
                         if (dbPartners && dbPartners.length > 0) {
+                            console.log(`Found ${dbPartners.length} matching partners in DB. Merging technical metadata...`);
                             // Merge DB metadata into current partners (preserving project-specific roles/descriptions)
                             data.partners = data.partners.map((p: any) => {
                                 const dbp = dbPartners.find(db => db.id === p.id);
@@ -312,6 +314,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                 }
             }
 
+            console.log("Setting proposal state with partners count:", data.partners?.length);
             setProposal(data);
 
             // Initialize budget limit from constraints if available
@@ -1099,7 +1102,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                                 <div className="space-y-1">
                                                     <CardTitle className={`${section.level === 1 ? 'text-lg' : 'text-base uppercase tracking-wide text-primary/70'} font-semibold text-foreground/90`}>
-                                                        {section.title}
+                                                        {section.title.replace(/^undefined\s*/gi, '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
                                                     </CardTitle>
                                                     {section.description && (
                                                         <p className="text-[10px] text-muted-foreground italic max-w-2xl leading-relaxed">

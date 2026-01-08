@@ -153,9 +153,13 @@ export function buildProposalPrompt(
   const flattenSections = (sections: any[]): FlatSection[] => {
     let result: FlatSection[] = [];
     sections.forEach(s => {
+      // Force a valid key from label if key is missing
+      const fallbackKey = (s.label || 'section').toLowerCase().replace(/\s+/g, '_').replace(/\W/g, '');
+      const validKey = s.key || fallbackKey;
+
       result.push({
-        key: s.key,
-        label: s.label,
+        key: validKey,
+        label: s.label || 'Untitled Section',
         description: s.description || '',
         charLimit: s.charLimit,
         aiPrompt: s.aiPrompt

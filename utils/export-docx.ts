@@ -577,9 +577,23 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
               docChildren.push(new Paragraph({ text: "" })); // Spacer
             });
           } else if (isWPSection && p.workPackages?.length > 0) {
-            renderedWorkPackages = true;
-            docChildren.push(createParagraph("Work Package Overview:", { bold: true, italic: true, color: COLOR_PRIMARY }));
-            docChildren.push(createWorkPackageTable(p.workPackages));
+            // Check if this is a specific WP section (e.g. "Work Package 1")
+            const wpMatch = lowerTitle.match(/work package (\d+)/i) || lowerKey.match(/work_package_(\d+)/i);
+            if (wpMatch) {
+              const wpIdx = parseInt(wpMatch[1]) - 1;
+              if (p.workPackages[wpIdx]) {
+                const wp = p.workPackages[wpIdx];
+                docChildren.push(createParagraph(`Work Package ${wpIdx + 1}: ${wp.name}`, { bold: true, italic: true, color: COLOR_PRIMARY }));
+                docChildren.push(createWorkPackageTable([wp]));
+              } else {
+                // FALLBACK: If we don't have this specific WP in structured data, just rely on narrative (which was already pushed)
+              }
+            } else if (!renderedWorkPackages) {
+              // General WP section - show ALL
+              renderedWorkPackages = true;
+              docChildren.push(createParagraph("Work Package Overview:", { bold: true, italic: true, color: COLOR_PRIMARY }));
+              docChildren.push(createWorkPackageTable(p.workPackages));
+            }
           } else if (isBudgetSection && p.budget?.length > 0) {
             renderedBudget = true;
             docChildren.push(createParagraph("Detailed Budget Table:", { bold: true, italic: true, color: COLOR_PRIMARY }));
