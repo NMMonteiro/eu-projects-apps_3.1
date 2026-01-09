@@ -81,6 +81,8 @@ function sanitizeTitle(title: string): string {
   clean = clean.replace(/^\d+[\.\)\s-]+\s*/, '');
   // Replace underscores with spaces
   clean = clean.replace(/_/g, ' ');
+  // Remove " - Null" or similar common empty placeholders
+  clean = clean.replace(/\s*-\s*null$/i, '');
   // Title case
   return clean.replace(/\b\w/g, l => l.toUpperCase()).trim();
 }
@@ -99,17 +101,17 @@ function normalizePartner(p: any): Partner {
 
   return {
     ...p,
-    name: p.name || p.legal_name || p.legal_name_national || "Unknown Partner",
+    name: p.name || p.legalShortName || p.acronym || p.legal_name || p.legal_name_national || "Unknown Partner",
     organisationId: p.organisationId || p.organisation_id || p.pic || p.oid || p.picNumber || "",
     vatNumber: p.vatNumber || p.vat_number || p.vat || "",
-    businessId: p.businessId || p.business_id || p.registration_id || "",
+    businessId: p.businessId || p.business_id || p.registration_id || p.business_registration_id || "",
     organizationType: p.organizationType || p.organization_type || p.type || "",
-    legalNameNational: p.legalNameNational || p.legal_name_national || p.name || "",
-    legalAddress: p.legalAddress || p.legal_address || p.address || "",
-    country: p.country || p.legal_country || "",
-    city: p.city || p.legal_city || "",
-    postcode: p.postcode || p.post_code || p.legal_postcode || "",
-    website: p.website || p.url || "",
+    legalNameNational: p.legalNameNational || p.legal_name_national || p.legalName || p.name || "",
+    legalAddress: p.legalAddress || p.legal_address || p.office_address || p.address || "",
+    country: p.country || p.legal_country || p.legalCountry || "",
+    city: p.city || p.legal_city || p.legalCity || "",
+    postcode: p.postcode || p.post_code || p.legal_postcode || p.zipCode || "",
+    website: p.website || p.url || p.org_website || "",
     contactEmail: p.contactEmail || p.contact_email || p.email || "",
     legalRepName: p.legalRepName || p.legal_rep_name || p.rep_name || "",
     legalRepPosition: p.legalRepPosition || p.legal_rep_position || p.rep_position || "",
@@ -126,6 +128,21 @@ function normalizePartner(p: any): Partner {
     description: p.description || p.background || p.profile || "",
     isCoordinator: isCoord,
     role: isCoord ? "Coordinator" : (p.role || "Partner")
+  };
+}
+
+function normalizeWorkPackage(wp: any, index: number): WorkPackage {
+  let name = wp.name || `Work Package ${index + 1}`;
+  // Sanitize name: Remove common AI or template "Null" artifacts
+  name = name.replace(/\s*-\s*null$/i, '');
+
+  return {
+    ...wp,
+    name,
+    description: wp.description || "",
+    deliverables: Array.isArray(wp.deliverables)
+      ? wp.deliverables.filter((d: any) => d && String(d).toLowerCase() !== 'null' && String(d).toLowerCase() !== '')
+      : []
   };
 }
 
@@ -591,21 +608,28 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
               docChildren.push(new Paragraph({ text: "" }));
             });
           } else if (isWP && p.workPackages?.length > 0) {
-            const wpMatch = lowerTitle.match(/work package (\d+)/i) || lowerKey.match(/work_package_(\d+)/i);
+            // Enhanced WP matching: catches "Work Package 1", "WP1", "WP 1", etc.
+            const wpMatch = lowerTitle.match(/work package (\d+)/i) ||
+              lowerKey.match(/work_package_(\d+)/i) ||
+              lowerTitle.match(/wp\s*(\d+)/i);
+
             if (wpMatch) {
               const wpIdx = parseInt(wpMatch[1]) - 1;
               if (p.workPackages[wpIdx]) {
-                const wp = p.workPackages[wpIdx];
+                const wp = normalizeWorkPackage(p.workPackages[wpIdx], wpIdx);
                 renderedWPIndices.add(wpIdx);
-                // Check if all are rendered
+                // Mark as fully rendered only if we've seen all WPs
                 if (renderedWPIndices.size === p.workPackages.length) renderedWorkPackages = true;
-                docChildren.push(createParagraph(`Detailed implementation for ${wp.name}:`, { bold: true, italic: true, color: COLOR_PRIMARY }));
+
+                docChildren.push(createParagraph(`Implementation Plan for ${wp.name}:`, { bold: true, italic: true, color: COLOR_PRIMARY }));
                 docChildren.push(createWorkPackageTable([wp]));
               }
             } else if (!renderedWorkPackages) {
+              // This acts as a catch-all for a general "Work Plan" or "Methodology" section
               renderedWorkPackages = true;
-              docChildren.push(createParagraph("Work Package Overview and Distribution:", { bold: true, italic: true, color: COLOR_PRIMARY }));
-              docChildren.push(createWorkPackageTable(p.workPackages));
+              docChildren.push(createParagraph("Work Package Overview and Implementation Plan:", { bold: true, italic: true, color: COLOR_PRIMARY }));
+              const normalizedWPs = p.workPackages.map((wp, i) => normalizeWorkPackage(wp, i));
+              docChildren.push(createWorkPackageTable(normalizedWPs));
               p.workPackages.forEach((_, i) => renderedWPIndices.add(i));
             }
           } else if (isBudget && p.budget?.length > 0 && !renderedBudget) {
@@ -637,16 +661,24 @@ export async function generateDocx(proposal: FullProposal): Promise<{ blob: Blob
     docChildren.push(new Paragraph({ children: [new PageBreak()] }));
 
     // 4. FALLBACKS (Ensure no structured data is lost if template sections missed them)
-    if (!renderedPartnersDetailed || !renderedBudget || !renderedRisks || !renderedWorkPackages) {
+    const hasRemainingWPs = p.workPackages && p.workPackages.length > renderedWPIndices.size;
+
+    if (!renderedPartnersDetailed || !renderedBudget || !renderedRisks || hasRemainingWPs) {
       docChildren.push(new Paragraph({ children: [new PageBreak()] }));
       docChildren.push(createSectionHeader("Annex: Additional Structured Data", 1));
 
-      if (p.workPackages && p.workPackages.length > 0 && !renderedWorkPackages) {
-        const remainingWPs = p.workPackages.filter((_, i) => !renderedWPIndices.has(i));
+      if (hasRemainingWPs) {
+        const remainingWPs = p.workPackages
+          .map((wp, i) => ({ wp, i }))
+          .filter(item => !renderedWPIndices.has(item.i))
+          .map(item => normalizeWorkPackage(item.wp, item.i));
+
         if (remainingWPs.length > 0) {
-          docChildren.push(createSectionHeader("Implementation Plan (Work Packages)", 2));
+          docChildren.push(createSectionHeader("Annex: Additional Work Packages", 2));
           docChildren.push(createWorkPackageTable(remainingWPs));
           renderedWorkPackages = true;
+          // Mark all as rendered to prevent further fallbacks
+          p.workPackages.forEach((_, i) => renderedWPIndices.add(i));
         }
       }
 
@@ -731,6 +763,13 @@ export async function exportToDocx(proposal: FullProposal): Promise<void> {
 // ============================================================================
 
 function createPartnerListTable(partners: Partner[]): Table {
+  // Always sort: Coordinator first, then others
+  const sortedPartners = [...partners].sort((a, b) => {
+    const na = normalizePartner(a);
+    const nb = normalizePartner(b);
+    return (na.isCoordinator ? -1 : nb.isCoordinator ? 1 : 0);
+  });
+
   const rows = [
     new TableRow({
       children: [
@@ -742,7 +781,7 @@ function createPartnerListTable(partners: Partner[]): Table {
         createTableHeaderCell("Type"),
       ]
     }),
-    ...partners.map((pt, i) => {
+    ...sortedPartners.map((pt, i) => {
       const normalized = normalizePartner(pt);
       return new TableRow({
         children: [
