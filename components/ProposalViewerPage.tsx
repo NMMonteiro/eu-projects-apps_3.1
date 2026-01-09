@@ -123,7 +123,7 @@ const ResponsiveSectionContent = ({ content }: { content: string }) => {
     return <div dangerouslySetInnerHTML={{ __html: processed }} />;
 };
 
-const DynamicWorkPackageSection = ({ workPackages, limitToIndex }: { workPackages: any[], limitToIndex?: number }) => {
+const DynamicWorkPackageSection = ({ workPackages, limitToIndex, currency }: { workPackages: any[], limitToIndex?: number, currency?: string }) => {
     if (!workPackages || workPackages.length === 0) {
         return <div className="p-4 text-center text-muted-foreground italic border border-dashed rounded-lg">No work packages defined yet.</div>;
     }
@@ -131,6 +131,15 @@ const DynamicWorkPackageSection = ({ workPackages, limitToIndex }: { workPackage
     const displayWPs = limitToIndex !== undefined ? [workPackages[limitToIndex]].filter(Boolean) : workPackages;
 
     if (displayWPs.length === 0) return null;
+
+    const formatCurrency = (amount: number) => {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency || 'EUR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(amount);
+    };
 
     return (
         <div className="space-y-6">
@@ -143,7 +152,7 @@ const DynamicWorkPackageSection = ({ workPackages, limitToIndex }: { workPackage
                                 <div>
                                     <div className="flex items-center gap-2 mb-1">
                                         <Badge variant="outline" className="border-primary/30 text-primary bg-primary/5 uppercase text-[10px] px-2 py-0">Work Package {actualIndex + 1}</Badge>
-                                        {wp.duration && <span className="text-[10px] text-muted-foreground font-mono">{wp.duration}</span>}
+                                        {wp.duration && <span className="text-[10px] text-muted-foreground font-mono bg-white/5 px-2 py-0 rounded">{wp.duration}</span>}
                                     </div>
                                     <CardTitle className="text-xl font-bold tracking-tight">{wp.name}</CardTitle>
                                 </div>
@@ -157,35 +166,59 @@ const DynamicWorkPackageSection = ({ workPackages, limitToIndex }: { workPackage
                                     dangerouslySetInnerHTML={{ __html: wp.description }} />
                             </div>
 
-                            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                            <div className="grid grid-cols-1 gap-6">
                                 {/* Activities */}
                                 {wp.activities && wp.activities.length > 0 && (
-                                    <div className="bg-blue-500/5 rounded-xl p-5 border border-blue-500/10 h-full">
+                                    <div className="bg-blue-500/5 rounded-xl p-5 border border-blue-500/10">
                                         <div className="flex items-center gap-2 mb-4">
                                             <div className="p-1.5 rounded-md bg-blue-500/20">
                                                 <Layers className="h-3.5 w-3.5 text-blue-400" />
                                             </div>
-                                            <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Planned Activities</h5>
+                                            <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Implementation Activities</h5>
                                         </div>
-                                        <ul className="space-y-3">
+                                        <div className="space-y-4">
                                             {wp.activities.map((act: any, aIdx: number) => {
                                                 const activityName = typeof act === 'string' ? act : act.name || act.activity;
                                                 const activityDesc = typeof act === 'object' ? act.description : null;
+                                                const leadPartner = typeof act === 'object' ? act.leadPartner : null;
+                                                const participating = typeof act === 'object' ? act.participatingPartners : null;
+                                                const budget = typeof act === 'object' ? act.estimatedBudget : null;
+
                                                 return (
-                                                    <li key={aIdx} className="group">
-                                                        <div className="flex items-start gap-3">
-                                                            <div className="h-5 w-5 rounded-full bg-blue-500/10 border border-blue-500/20 flex items-center justify-center shrink-0 mt-0.5 group-hover:bg-blue-500/20 transition-colors">
-                                                                <span className="text-[9px] font-bold text-blue-400">{aIdx + 1}</span>
+                                                    <div key={aIdx} className="relative pl-10 pb-4 border-l border-blue-500/20 last:pb-0 last:border-l-0">
+                                                        <div className="absolute left-[-9px] top-0 h-4 w-4 rounded-full bg-blue-500 flex items-center justify-center text-[9px] font-bold text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]">
+                                                            {aIdx + 1}
+                                                        </div>
+                                                        <div className="bg-white/5 rounded-lg p-3 border border-white/5 hover:border-blue-500/30 transition-all">
+                                                            <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
+                                                                <span className="text-sm font-semibold text-foreground/90">{activityName}</span>
+                                                                {budget && (
+                                                                    <Badge variant="secondary" className="bg-blue-500/10 text-blue-400 border-none font-mono text-[10px]">
+                                                                        {formatCurrency(budget)}
+                                                                    </Badge>
+                                                                )}
                                                             </div>
-                                                            <div className="space-y-1">
-                                                                <span className="text-sm font-medium text-foreground/90 block">{activityName}</span>
-                                                                {activityDesc && <p className="text-xs text-muted-foreground/70 leading-relaxed">{activityDesc}</p>}
+                                                            {activityDesc && <p className="text-xs text-muted-foreground/80 mb-3 leading-relaxed">{activityDesc}</p>}
+
+                                                            <div className="flex flex-wrap gap-4 mt-2 pt-2 border-t border-white/5">
+                                                                {leadPartner && (
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[8px] uppercase font-bold text-blue-400/70 tracking-tighter">Lead Partner</span>
+                                                                        <span className="text-[10px] text-foreground/80">{leadPartner}</span>
+                                                                    </div>
+                                                                )}
+                                                                {participating && participating.length > 0 && (
+                                                                    <div className="flex flex-col">
+                                                                        <span className="text-[8px] uppercase font-bold text-muted-foreground tracking-tighter">Participating</span>
+                                                                        <span className="text-[10px] text-muted-foreground/80">{participating.join(', ')}</span>
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
-                                                    </li>
+                                                    </div>
                                                 );
                                             })}
-                                        </ul>
+                                        </div>
                                     </div>
                                 )}
 
@@ -198,14 +231,14 @@ const DynamicWorkPackageSection = ({ workPackages, limitToIndex }: { workPackage
                                             </div>
                                             <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-green-400">Key Deliverables</h5>
                                         </div>
-                                        <ul className="space-y-3">
+                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                                             {wp.deliverables.map((del: string, dIdx: number) => (
-                                                <li key={dIdx} className="flex items-start gap-3">
-                                                    <div className="h-1.5 w-1.5 rounded-full bg-green-500/40 mt-1.5 shrink-0" />
-                                                    <span className="text-sm text-muted-foreground/90">{del}</span>
-                                                </li>
+                                                <div key={dIdx} className="flex items-center gap-2 bg-white/5 p-2 rounded border border-white/5">
+                                                    <CheckCircle2 className="h-3 w-3 text-green-400/60 shrink-0" />
+                                                    <span className="text-[11px] text-muted-foreground/90 truncate">{del}</span>
+                                                </div>
                                             ))}
-                                        </ul>
+                                        </div>
                                     </div>
                                 )}
                             </div>
@@ -213,6 +246,40 @@ const DynamicWorkPackageSection = ({ workPackages, limitToIndex }: { workPackage
                     </Card>
                 );
             })}
+        </div>
+    );
+};
+
+const PartnerSummarySection = ({ summary, currency }: { summary: any[], currency: string }) => {
+    if (!summary || summary.length === 0) return null;
+
+    const formatCurrency = (amount: number) => {
+        return new Intl.NumberFormat('en-US', {
+            style: 'currency',
+            currency: currency || 'EUR',
+            minimumFractionDigits: 0,
+            maximumFractionDigits: 0
+        }).format(amount);
+    };
+
+    return (
+        <div className="space-y-4">
+            <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">Budget Allocation per Partner</h5>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+                {summary.map((p, idx) => (
+                    <Card key={idx} className="bg-card/30 border-border/40 hover:border-primary/20 transition-all">
+                        <CardContent className="pt-4 pb-4">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="text-sm font-bold text-foreground/90 truncate mr-2" title={p.partner}>{p.partner}</span>
+                                <Badge variant="secondary" className="bg-primary/10 text-primary border-none text-[10px]">{p.percentage}</Badge>
+                            </div>
+                            <div className="text-lg font-mono font-bold text-primary">
+                                {typeof p.total === 'number' ? formatCurrency(p.total) : p.total}
+                            </div>
+                        </CardContent>
+                    </Card>
+                ))}
+            </div>
         </div>
     );
 };
@@ -243,15 +310,27 @@ const DynamicBudgetSection = ({ budget, currency }: { budget: any[], currency: s
                     </thead>
                     <tbody className="divide-y divide-border/20">
                         {budget.map((item, i) => (
-                            <tr key={i} className="hover:bg-white/5 transition-colors">
-                                <td className="py-3 px-4">
-                                    <div className="font-medium text-foreground/90">{item.item}</div>
-                                    <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
-                                </td>
-                                <td className="py-3 px-4 text-right font-mono text-primary/90">
-                                    {formatCurrency(item.cost)}
-                                </td>
-                            </tr>
+                            <React.Fragment key={i}>
+                                <tr className="hover:bg-white/5 transition-colors">
+                                    <td className="py-3 px-4">
+                                        <div className="font-medium text-foreground/90">{item.item}</div>
+                                        <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
+                                        {item.partnerAllocations && (
+                                            <div className="mt-2 flex flex-wrap gap-2">
+                                                {item.partnerAllocations.map((alloc: any, aIdx: number) => (
+                                                    <span key={aIdx} className="text-[9px] bg-white/5 px-1.5 py-0.5 rounded text-muted-foreground border border-white/5">
+                                                        <span className="font-bold mr-1">{alloc.partner}:</span>
+                                                        {formatCurrency(alloc.amount)}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </td>
+                                    <td className="py-3 px-4 text-right font-mono text-primary/90">
+                                        {formatCurrency(item.cost)}
+                                    </td>
+                                </tr>
+                            </React.Fragment>
                         ))}
                     </tbody>
                     <tfoot className="bg-primary/5">
@@ -1411,9 +1490,12 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                                             </div>
                                                         )}
                                                         {(() => {
-                                                            const match = section.id.match(/work_package_(\d+)/i) || section.title.toLowerCase().match(/work package (\d+)/i);
+                                                            const match = section.id.match(/work_package_(\d+)/i) ||
+                                                                section.title.toLowerCase().match(/work package (\d+)/i) ||
+                                                                section.title.match(/W.P.\s*(\d+)/i) ||
+                                                                section.title.match(/WP\s*(\d+)/i);
                                                             const wpIdx = match ? parseInt(match[1]) - 1 : undefined;
-                                                            return <DynamicWorkPackageSection workPackages={proposal.workPackages} limitToIndex={wpIdx} />;
+                                                            return <DynamicWorkPackageSection workPackages={proposal.workPackages} limitToIndex={wpIdx} currency={settings.currency} />;
                                                         })()}
                                                     </div>
                                                 ) : isBudgetSection && proposal.budget && proposal.budget.length > 0 ? (
@@ -1565,7 +1647,6 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                             </h3>
                             <div className="flex items-center gap-2">
                                 <span className="text-sm text-muted-foreground">Limit:</span>
-                                <span className="text-sm text-muted-foreground">Limit:</span>
                                 <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">
                                         {getCurrencySymbol(settings.currency)}
@@ -1580,6 +1661,12 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                 </div>
                             </div>
                         </div>
+
+                        {proposal.partnerBudgetSummary && (
+                            <div className="mb-8">
+                                <PartnerSummarySection summary={proposal.partnerBudgetSummary} currency={settings.currency} />
+                            </div>
+                        )}
                         <Card className="bg-card/30 border-border/40 overflow-hidden">
                             <div className="overflow-x-auto">
                                 <table className="w-full text-sm">

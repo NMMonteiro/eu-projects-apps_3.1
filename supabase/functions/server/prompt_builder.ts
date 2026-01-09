@@ -256,9 +256,15 @@ OUTPUT FORMAT (JSON ONLY, no markdown):
     {
       "name": "WP1: Project Management",
       "description": "Detailed description of management and coordination",
+      "duration": "M1-M24",
       "activities": [
-        { "name": "Kick-off Meeting", "description": "Organizing the internal launch event with all partners" },
-        { "name": "Quality Assurance", "description": "Continuous monitoring of tasks and deliverables" }
+        { 
+          "name": "Kick-off Meeting", 
+          "description": "Organizing the internal launch event with all partners",
+          "leadPartner": "Lead Partner Name",
+          "participatingPartners": ["Partner A", "Partner B"],
+          "estimatedBudget": 5000
+        }
       ],
       "deliverables": ["Grant Agreement", "Project Management Plan"]
     }
@@ -279,13 +285,22 @@ OUTPUT FORMAT (JSON ONLY, no markdown):
       "breakdown": [
         { "subItem": "Meta Quest 3 Headsets", "quantity": 10, "unitCost": 550, "total": 5500 },
         { "subItem": "Local Media Server", "quantity": 1, "unitCost": 1000, "total": 1000 }
+      ],
+      "partnerAllocations": [
+        { "partner": "Lead Partner", "amount": 4000 },
+        { "partner": "Partner A", "amount": 2500 }
       ]
     }
+  ],
+  "partnerBudgetSummary": [
+    { "partner": "Lead Partner Name", "total": "€XXXXX", "percentage": "XX%" }
   ],
   "timeline": [
     { "phase": "M1-M6: Setup", "activities": ["Kick-off", "Requirement gathering"], "startMonth": 1, "endMonth": 6 }
   ]
 }
+
+CRITICAL: If the "dynamicSections" includes "work_package_1", "work_package_2", etc., you MUST ensure the "workPackages" array has EXACTLY those entries in the same order, with matching names and detailed data. DO NOT repeat content. Each Work Package must be unique.
 
 Return ONLY valid JSON.`;
 }
