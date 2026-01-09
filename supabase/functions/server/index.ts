@@ -170,9 +170,9 @@ Return JSON:
 {
   "summary": "Summary of the opportunity",
   "constraints": {
-    "partners": "e.g., 3-5 partners required",
-    "budget": "e.g., €250,000",
-    "duration": "e.g., 24 months"
+    "partners": "e.g., 3-5 partners required (Check user provided text first)",
+    "budget": "e.g., €250,000 (MANDATORY: If user text mentions a budget, use that EXACT value above everything else)",
+    "duration": "e.g., 24 months (MANDATORY: If user text mentions a duration, use that EXACT value)"
   }
 }
 
@@ -328,6 +328,8 @@ Return ONLY valid JSON, no other text.`;
                         role: p.role || '',
                         isCoordinator: selectedPartners.indexOf(p.id) === 0
                     })));
+                    // FORCE: Sort partners so coordinator is always at index 0
+                    partners.sort((a: any, b: any) => (a.isCoordinator ? -1 : b.isCoordinator ? 1 : 0));
                 }
 
                 // Fallback to KV if any missing (for transition)

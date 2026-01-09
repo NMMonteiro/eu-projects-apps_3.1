@@ -4,7 +4,8 @@ import {
     Layers, Users, DollarSign, AlertTriangle,
     FileText, CheckCircle2, ChevronDown, Sparkles,
     Terminal, Settings, Layout, Search, Filter,
-    Plus, Trash2, Edit, Save as SaveIcon, X
+    Plus, Trash2, Edit, Save as SaveIcon, X,
+    Folder, File, ChevronRight
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
@@ -26,6 +27,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
     const [loading, setLoading] = useState(true);
     const [activeTab, setActiveTab] = useState<'structured' | 'narrative' | 'settings'>('structured');
     const [expandedWp, setExpandedWp] = useState<number | null>(0);
+    const [fundingScheme, setFundingScheme] = useState<any>(null);
 
     useEffect(() => {
         loadProposal();
@@ -40,6 +42,18 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
             if (!response.ok) throw new Error('Failed to load proposal');
             const data = await response.json();
             setProposal(data);
+
+            // If proposal has a funding scheme, fetch it
+            if (data.funding_scheme_id || data.fundingSchemeId) {
+                const schemeId = data.funding_scheme_id || data.fundingSchemeId;
+                const schemeResponse = await fetch(`${serverUrl}/funding-schemes/${schemeId}`, {
+                    headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+                });
+                if (schemeResponse.ok) {
+                    const schemeData = await schemeResponse.json();
+                    setFundingScheme(schemeData);
+                }
+            }
         } catch (error) {
             console.error('Load error:', error);
             toast.error('Failed to load proposal details');
@@ -64,6 +78,28 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
 
     const totalBudget = (proposal.budget || []).reduce((sum: number, item: any) => sum + (item.cost || 0), 0);
 
+    // Flatten sections from funding scheme template
+    const getFlattenedSections = (sections: any[]): any[] => {
+        let result: any[] = [];
+        sections.forEach(s => {
+            result.push({
+                key: s.key,
+                label: s.label,
+                level: s.level || 0,
+                isSub: !!s.subsections?.length
+            });
+            if (s.subsections?.length) {
+                result = [...result, ...getFlattenedSections(s.subsections.map((sub: any) => ({ ...sub, level: (s.level || 0) + 1 })))];
+            }
+        });
+        return result;
+    };
+
+    const dynamicSections = proposal.dynamic_sections || proposal.dynamicSections || {};
+    const expectedSections = fundingScheme?.template_json?.sections
+        ? getFlattenedSections(fundingScheme.template_json.sections)
+        : Object.keys(dynamicSections).map(k => ({ key: k, label: k.replace(/_/g, ' '), level: 0 }));
+
     return (
         <div className="max-w-7xl mx-auto space-y-8 pb-20 px-4 pt-4">
             {/* Header Section */}
@@ -71,7 +107,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                 <div className="space-y-2">
                     <div className="flex items-center gap-2">
                         <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 px-3 py-1 uppercase tracking-widest text-[10px] font-bold">
-                            Official Proposal
+                            {fundingScheme?.name || 'Official Proposal'}
                         </Badge>
                         <span className="text-muted-foreground/40 font-mono text-xs">ID: {proposal.id.split('-').pop()}</span>
                     </div>
@@ -111,15 +147,15 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
             <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full">
                 <div className="flex items-center justify-center mb-8">
                     <TabsList className="bg-secondary/40 p-1 rounded-2xl border border-white/5 backdrop-blur-lg">
-                        <TabsTrigger value="structured" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold">
+                        <TabsTrigger value="structured" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold transition-all duration-300">
                             <Layout className="h-4 w-4" />
                             Project Design
                         </TabsTrigger>
-                        <TabsTrigger value="narrative" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold">
+                        <TabsTrigger value="narrative" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold transition-all duration-300">
                             <FileText className="h-4 w-4" />
                             Narrative Structure
                         </TabsTrigger>
-                        <TabsTrigger value="settings" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold">
+                        <TabsTrigger value="settings" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold transition-all duration-300">
                             <Settings className="h-4 w-4" />
                             Configuration
                         </TabsTrigger>
@@ -295,45 +331,72 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                     <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
                         <div className="md:col-span-1 space-y-4">
                             <Card className="bg-secondary/10 border-white/5 rounded-3xl p-6 sticky top-24 backdrop-blur-xl shadow-2xl">
-                                <h4 className="text-xs font-black uppercase tracking-widest text-primary/50 mb-4">Structural Layout</h4>
-                                <ScrollArea className="h-[60vh] -mx-2 px-2">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h4 className="text-xs font-black uppercase tracking-widest text-primary/50">Structural Layout</h4>
+                                    <Badge variant="outline" className="text-[8px] opacity-40">AI GEN v2.0</Badge>
+                                </div>
+                                <ScrollArea className="h-[65vh] -mx-2 px-2">
                                     <div className="space-y-1">
-                                        <div className="px-3 py-2 rounded-xl bg-primary/10 text-primary flex items-center gap-2 font-bold cursor-pointer mb-2">
-                                            <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"></div>
-                                            Summary
-                                        </div>
-                                        {Object.keys(proposal.dynamicSections || {}).map((key, idx) => (
-                                            <div key={key} className="px-3 py-2 rounded-xl hover:bg-white/5 text-muted-foreground hover:text-white transition-colors text-sm flex items-center gap-2 cursor-pointer">
-                                                <span className="text-[10px] font-mono opacity-30">{idx + 1}.</span>
-                                                <span className="truncate uppercase tracking-tight">{key.replace(/_/g, ' ')}</span>
-                                            </div>
+                                        <a href="#summary" className="px-3 py-2 rounded-xl bg-primary/10 text-primary flex items-center gap-2 font-bold cursor-pointer mb-2 hover:bg-primary/20 transition-all">
+                                            <Sparkles className="h-3 w-3" />
+                                            Executive Summary
+                                        </a>
+                                        {expectedSections.map((sec: any, idx: number) => (
+                                            <a
+                                                key={sec.key}
+                                                href={`#${sec.key}`}
+                                                className={`group px-3 py-2 rounded-xl hover:bg-white/5 text-muted-foreground hover:text-white transition-all text-sm flex items-center gap-2 cursor-pointer ${sec.level > 0 ? 'ml-4 border-l border-white/10 pl-4' : ''}`}
+                                            >
+                                                {sec.level > 0 ? (
+                                                    <ChevronRight className="h-3 w-3 opacity-30 group-hover:translate-x-0.5 transition-transform" />
+                                                ) : (
+                                                    <span className="text-[10px] font-mono opacity-20">{idx + 1}.</span>
+                                                )}
+                                                <span className="truncate uppercase font-medium tracking-tight text-[11px] group-hover:translate-x-1 transition-transform">{sec.label}</span>
+                                                {dynamicSections?.[sec.key] ? (
+                                                    <CheckCircle2 className="h-3 w-3 ml-auto text-emerald-500/40 opacity-0 group-hover:opacity-100 transition-opacity" />
+                                                ) : (
+                                                    <AlertTriangle className="h-3 w-3 ml-auto text-amber-500/20" />
+                                                )}
+                                            </a>
                                         ))}
                                     </div>
                                 </ScrollArea>
                             </Card>
                         </div>
 
-                        <div className="md:col-span-3 space-y-12 pb-20">
-                            <section className="space-y-6">
-                                <div className="space-y-2 border-b border-white/5 pb-4">
-                                    <h2 className="text-3xl font-black italic tracking-tight">Project Summary</h2>
-                                    <p className="text-xs text-muted-foreground uppercase tracking-[0.3em] font-bold">Executive Overview</p>
+                        <div className="md:col-span-3 space-y-16 pb-40">
+                            {/* Executive Summary */}
+                            <section id="summary" className="space-y-8 scroll-mt-24">
+                                <div className="space-y-3 border-l-4 border-primary pl-6 py-2">
+                                    <p className="text-[10px] text-primary font-black uppercase tracking-[0.4em]">Section 0.0</p>
+                                    <h2 className="text-4xl font-extrabold italic tracking-tight">Executive Summary</h2>
                                 </div>
-                                <div className="prose prose-invert prose-blue max-w-none text-muted-foreground leading-loose"
+                                <div className="prose prose-invert prose-blue max-w-none text-muted-foreground/90 leading-relaxed text-lg font-medium selection:bg-primary/30"
                                     dangerouslySetInnerHTML={{ __html: proposal.summary }} />
                             </section>
 
-                            {Object.entries(proposal.dynamicSections || {}).map(([key, content]: [string, any], idx) => (
-                                <section key={key} id={key} className="space-y-6 relative">
+                            {expectedSections.map((sec: any, idx: number) => (
+                                <section key={sec.key} id={sec.key} className={`space-y-8 scroll-mt-24 relative ${sec.level > 0 ? 'ml-8' : ''}`}>
                                     <div className="absolute -left-4 top-0 bottom-0 w-px bg-white/5"></div>
-                                    <div className="space-y-2">
-                                        <h2 className="text-3xl font-black italic tracking-tight capitalize">
-                                            {key.replace(/_/g, ' ')}
+                                    <div className={`space-y-3 ${sec.level === 0 ? 'border-l-4 border-indigo-500/50 pl-6' : 'border-l-2 border-white/10 pl-4'}`}>
+                                        <p className="text-[10px] text-muted-foreground font-black uppercase tracking-widest">
+                                            {sec.level === 0 ? `Section 0${idx + 1}` : `Sub-section ${idx + 1}`}
+                                        </p>
+                                        <h2 className={`${sec.level === 0 ? 'text-4xl' : 'text-2xl'} font-extrabold italic tracking-tight capitalize`}>
+                                            {sec.label}
                                         </h2>
-                                        <p className="text-[10px] text-primary font-bold uppercase tracking-widest">Section 0{idx + 1}</p>
                                     </div>
-                                    <div className="prose prose-invert prose-indigo max-w-none text-muted-foreground leading-loose"
-                                        dangerouslySetInnerHTML={{ __html: content }} />
+                                    <div className={`prose prose-invert max-w-none text-muted-foreground leading-relaxed selection:bg-white/10 ${sec.level === 0 ? 'text-md font-medium' : 'text-sm'}`}>
+                                        {dynamicSections?.[sec.key] ? (
+                                            <div dangerouslySetInnerHTML={{ __html: dynamicSections[sec.key] }} />
+                                        ) : (
+                                            <div className="bg-amber-500/5 border border-amber-500/10 p-6 rounded-3xl text-amber-500/50 italic flex items-center gap-3">
+                                                <AlertTriangle className="h-5 w-5" />
+                                                This section was not included in the AI generation. Ensure the funding scheme matches the generation requirements.
+                                            </div>
+                                        )}
+                                    </div>
                                 </section>
                             ))}
                         </div>
@@ -345,11 +408,11 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                     <Card className="bg-secondary/10 border-white/5 rounded-[40px] p-12 overflow-hidden relative shadow-2xl">
                         <div className="absolute top-0 right-0 h-32 w-32 bg-primary/20 blur-[100px] -mr-16 -mt-16 rounded-full"></div>
                         <div className="space-y-8 relative">
-                            <div className="space-y-2">
+                            <div className="space-y-2 text-center">
                                 <h3 className="text-3xl font-black italic">Proposal Configuration</h3>
                                 <p className="text-muted-foreground">Fine-tune the project metadata and core parameters.</p>
                             </div>
-                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8 pt-8">
                                 <div className="space-y-4">
                                     <label className="text-xs font-black uppercase tracking-widest text-primary">Target Currency</label>
                                     <Input defaultValue="EUR (€)" className="bg-black/40 border-white/10 rounded-2xl h-12" />

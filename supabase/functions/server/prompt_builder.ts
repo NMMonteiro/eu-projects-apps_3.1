@@ -184,7 +184,6 @@ export function buildProposalPrompt(
     const wp1Idx = allSections.findIndex(s => s.key.includes('work_package_1'));
     const insertIdx = wp1Idx !== -1 ? wp1Idx + 1 : allSections.length;
 
-    // If WP1 is missing too, add it
     if (wp1Idx === -1) {
       allSections.push({ key: 'work_package_1', label: 'Work Package 1: Management', description: 'Coordination and admin.' });
     }
@@ -197,12 +196,16 @@ export function buildProposalPrompt(
   }
 
   const partnerInfo = partners.length > 0
-    ? `\n\nCONSORTIUM PARTNERS (REQUIRED - YOU MUST USE ALL OF THEM):\n${partners.map(p => `- ${p.name}${p.acronym ? ` (${p.acronym})` : ''} - ${p.country || 'Country not specified'}${p.isCoordinator ? ' [LEAD COORDINATOR]' : ''}\n  - Profile: ${p.description || 'No description'}\n  - Expertise: ${p.experience || ''}`).join('\n')}`
+    ? `\n\nCONSORTIUM PARTNERS (LOADED FROM DATABASE - YOU MUST USE ALL ${partners.length} OF THEM):\n${partners.map((p, i) => `- ${p.name}${p.acronym ? ` (${p.acronym})` : ''} - ${p.country || 'Country'}${p.isCoordinator ? ' [LEAD COORDINATOR]' : ''}\n  - Role: ${p.role || (p.isCoordinator ? 'Project Coordinator' : 'Partner')}\n  - Profile: ${p.description || 'No description'}\n  - Expertise: ${p.experience || ''}`).join('\n')}`
     : '';
 
   const userRequirements = userPrompt
-    ? `\n\n🎯 MANDATORY USER REQUIREMENTS - MUST BE ADDRESSED IN ALL SECTIONS:\n${userPrompt}\n============================================================`
+    ? `\n\n🎯 MANDATORY USER REQUIREMENTS - HIGHEST PRIORITY:\n${userPrompt}\n============================================================`
     : '';
+
+  // Parse target budget from userPrompt if possible (e.g. "€250,000")
+  const extractedBudget = userPrompt?.match(/€\s*(\d{1,3}(?:[.,]\d{3})*)/)?.[1] || constraints.budget?.match(/(\d{1,3}(?:[.,]\d{3})*)/)?.[1] || "250,000";
+  const finalBudgetStr = extractedBudget.includes('€') ? extractedBudget : `€${extractedBudget}`;
 
   return `You are an expert EU funding proposal writer.
 
@@ -214,51 +217,47 @@ CONTEXT: ${summary}
 
 CONSTRAINTS & REQUIREMENTS:
 ${userRequirements}
-- Partners: ${constraints.partners || 'Not specified'}
-- Budget: ${constraints.budget || 'Not specified'}
-- Duration: ${constraints.duration || 'Not specified'}${partnerInfo}
+- ALL PARTNERS MUST BE INCLUDED: You have EXACTLY ${partners.length} organizations to distribute work and budget to.
+- EXACT BUDGET: The TOTAL project budget MUST BE EXACTLY ${finalBudgetStr}.
+- EXACT WORK PACKAGES: You MUST generate EXACTLY 4 Work Packages (WP1, WP2, WP3, WP4).
 
-CURRENT DATE: January 2026
-CURRENCY: Format as "€XXX,XXX" (comma for thousands).
+STRICT OUTPUT RULES:
+1. **PARTNERS ARRAY**: The "partners" array in JSON MUST contain EXACTLY ${partners.length} elements. Do not omit the coordinator or any partner.
+2. **COORDINATOR**: The first partner (${partners[0]?.name}) IS THE COORDINATOR. Assign them WP1 and the coordination role.
+3. **BUDGET ITEMS**: The sum of all "cost" values in the "budget" array MUST EQUAL EXACTLY ${extractedBudget.replace(/[.,]/g, '')}.
+4. **NO TRUNCATION**: Keep narrative sections concise but complete (2-3 paragraphs each).
 
-TASK: Generate a comprehensive, HIGH-QUALITY technical funding proposal.
-
-STRICT JSON OUTPUT RULES:
-1. **EXACTLY ${partners.length || 1} PARTNERS**: You MUST include EVERY partner mentioned in the context above in the "partners" array.
-2. **EXACTLY 4 WORK PACKAGES**: You MUST generate EXACTLY 4 unique Work Packages (WP1, WP2, WP3, WP4) in the "workPackages" array.
-3. **EXACTLY €${constraints.budget ? constraints.budget : '250,000'} TOTAL BUDGET**: The sum of all items in "budget" MUST be EXACTLY the requested amount.
-4. **NARRATIVE SECTIONS**: Provide technical content for EVERY key in the "dynamicSections" object below.
-
-OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
+OUTPUT FORMAT (JSON ONLY):
 {
   "title": "${idea.title}",
   "partners": [
-    ${partners.map(p => `{ "name": "${p.name}", "role": "State their specific role...", "isCoordinator": ${p.isCoordinator || false}, "description": "Technical description of their contribution..." }`).join(',\n    ')}
+    ${partners.map(p => `{ "name": "${p.name}", "role": "${p.isCoordinator ? 'Project Coordinator' : 'Technical Partner'}", "isCoordinator": ${p.isCoordinator || false}, "description": "Concise profile..." }`).join(',\n    ')}
   ],
   "workPackages": [
     {
       "name": "WP1: Project Management & Coordination",
-      "description": "...",
+      "description": "Led by ${partners[0]?.name}...",
       "duration": "M1-M24",
-      "activities": [{ "name": "Management", "description": "...", "leadPartner": "${partners[0]?.name || 'Partner 1'}", "participatingPartners": [${partners.slice(1).map(p => `"${p.name}"`).join(', ')}], "estimatedBudget": 10000 }],
+      "activities": [{ "name": "Coordination", "description": "...", "leadPartner": "${partners[0]?.name}", "participatingPartners": [${partners.slice(1).map(p => `"${p.name}"`).join(', ')}], "estimatedBudget": 20000 }],
       "deliverables": ["Management Plan"]
     },
-    { "name": "WP2: Technical Design", "description": "...", "duration": "M3-M12", "activities": [...], "deliverables": [...] },
-    { "name": "WP3: Implementation", "description": "...", "duration": "M12-M24", "activities": [...], "deliverables": [...] },
-    { "name": "WP4: Dissemination & Sustainability", "description": "...", "duration": "M1-M24", "activities": [...], "deliverables": [...] }
+    { "name": "WP2: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] },
+    { "name": "WP3: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] },
+    { "name": "WP4: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] }
   ],
   "budget": [
     {
-      "item": "Staff Costs",
-      "cost": 150000,
-      "description": "...",
-      "breakdown": [{ "subItem": "Senior Experts", "quantity": 10, "unitCost": 15000, "total": 150000 }],
-      "partnerAllocations": [${partners.map(p => `{ "partner": "${p.name}", "amount": ${Math.floor(150000 / (partners.length || 1))} }`).join(', ')}]
+      "item": "Personnel Costs",
+      "cost": ${Math.floor(parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.6)},
+      "description": "Staff allocation for all partners.",
+      "breakdown": [],
+      "partnerAllocations": [${partners.map(p => `{ "partner": "${p.name}", "amount": ${Math.floor((parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.6) / partners.length)} }`).join(', ')}]
     },
-    { "item": "Miscellaneous / Contingency", "cost": 0, "description": "Adjustment to match exact budget requirement", "breakdown": [], "partnerAllocations": [] }
+    { "item": "Operational Expenses", "cost": ${Math.floor(parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.3)}, "description": "Travel, equipment, etc.", "breakdown": [], "partnerAllocations": [] },
+    { "item": "Miscellaneous / Contingency", "cost": ${Math.floor(parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.1)}, "description": "Adjustment to reach exact target.", "breakdown": [], "partnerAllocations": [] }
   ],
-  "risks": [{ "risk": "...", "likelihood": "Low", "impact": "High", "mitigation": "..." }],
-  "summary": "<p>Technical summary...</p>",
+  "risks": [{ "risk": "Technical delay", "likelihood": "Low", "impact": "High", "mitigation": "..." }],
+  "summary": "<p>Project summary...</p>",
   "dynamicSections": {
     ${allSections.map((s: FlatSection) => `"${s.key}": "<p>Technical narrative for ${s.label}...</p>"`).join(',\n    ')}
   }
