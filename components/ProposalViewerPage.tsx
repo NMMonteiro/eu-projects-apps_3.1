@@ -63,8 +63,8 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
             setProposal(data);
 
             // Set consortium state
-            if (data.partners) {
-                const ids = new Set(data.partners.map((p: any) => p.id));
+            if (data.partners && Array.isArray(data.partners)) {
+                const ids = new Set(data.partners.map((p: any) => p.id).filter(Boolean));
                 setSelectedPartnerIds(ids);
                 const lead = data.partners.find((p: any) => p.isCoordinator);
                 if (lead) setCoordinatorId(lead.id);
@@ -189,19 +189,25 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
 
     if (!proposal) return <div>Proposal not found</div>;
 
-    const totalBudget = (proposal.budget || []).reduce((sum: number, item: any) => sum + (item.cost || 0), 0);
+    const budgetArray = Array.isArray(proposal.budget) ? proposal.budget : [];
+    const partnersArray = Array.isArray(proposal.partners) ? proposal.partners : [];
+    const workPackagesArray = Array.isArray(proposal.workPackages) ? proposal.workPackages : [];
+
+    const totalBudget = budgetArray.reduce((sum: number, item: any) => sum + (item.cost || 0), 0);
 
     // Flatten sections from funding scheme template
     const getFlattenedSections = (sections: any[]): any[] => {
+        if (!Array.isArray(sections)) return [];
         let result: any[] = [];
         sections.forEach(s => {
+            if (!s) return;
             result.push({
                 key: s.key,
                 label: s.label,
                 level: s.level || 0,
-                isSub: !!s.subsections?.length
+                isSub: !!(s.subsections && Array.isArray(s.subsections) && s.subsections.length)
             });
-            if (s.subsections?.length) {
+            if (s.subsections && Array.isArray(s.subsections) && s.subsections.length) {
                 result = [...result, ...getFlattenedSections(s.subsections.map((sub: any) => ({ ...sub, level: (s.level || 0) + 1 })))];
             }
         });
@@ -244,12 +250,12 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
                         <div className="flex items-center gap-1.5">
                             <Layers className="h-4 w-4 text-blue-400" />
-                            <span>{proposal.workPackages?.length || 0} Work Packages</span>
+                            <span>{workPackagesArray.length} Work Packages</span>
                         </div>
                         <div className="h-1 w-1 rounded-full bg-white/10"></div>
                         <div className="flex items-center gap-1.5">
                             <Users className="h-4 w-4 text-green-400" />
-                            <span>{proposal.partners?.length || 0} Organizations</span>
+                            <span>{partnersArray.length} Organizations</span>
                         </div>
                         <div className="h-1 w-1 rounded-full bg-white/10"></div>
                         <div className="flex items-center gap-1.5 font-bold text-white/80">
@@ -298,12 +304,12 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                 Work Packages
                             </h3>
                             <Badge variant="secondary" className="px-4 py-1.5 rounded-full text-blue-400 border border-blue-500/20 bg-blue-500/5">
-                                {proposal.workPackages?.length || 0} Total Packages
+                                {workPackagesArray.length} Total Packages
                             </Badge>
                         </div>
 
                         <div className="grid grid-cols-1 gap-4">
-                            {(proposal.workPackages || []).map((wp: any, idx: number) => (
+                            {workPackagesArray.map((wp: any, idx: number) => (
                                 <Card key={idx} className={`bg-secondary/10 border-white/5 hover:border-primary/20 transition-all duration-300 overflow-hidden rounded-3xl group ${expandedWp === idx ? 'ring-1 ring-primary/30 shadow-2xl shadow-primary/5' : ''}`}>
                                     <div
                                         className="p-6 cursor-pointer flex items-center justify-between"
@@ -338,7 +344,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                             <div className="space-y-4">
                                                 <h5 className="text-sm font-bold uppercase tracking-widest text-primary/70">Planned Activities</h5>
                                                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                                                    {(wp.activities || []).map((act: any, aIdx: number) => (
+                                                    {(Array.isArray(wp.activities) ? wp.activities : []).map((act: any, aIdx: number) => (
                                                         <div key={aIdx} className="bg-white/5 rounded-2xl p-5 border border-white/5 space-y-3 hover:bg-white/10 transition-colors">
                                                             <div className="flex items-center justify-between">
                                                                 <span className="text-xs font-mono text-primary/50">ACT {idx + 1}.{aIdx + 1}</span>
@@ -360,7 +366,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                             <div className="space-y-4">
                                                 <h5 className="text-sm font-bold uppercase tracking-widest text-primary/70">Deliverables</h5>
                                                 <div className="flex flex-wrap gap-2">
-                                                    {(wp.deliverables || []).map((del: string, dIdx: number) => (
+                                                    {(Array.isArray(wp.deliverables) ? wp.deliverables : []).map((del: string, dIdx: number) => (
                                                         <Badge key={dIdx} variant="outline" className="bg-primary/5 text-primary border-primary/20 px-3 py-1 text-xs">
                                                             <CheckCircle2 className="h-3 w-3 mr-2" />
                                                             {del}
@@ -398,13 +404,13 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                     </tr>
                                 </thead>
                                 <tbody>
-                                    {(proposal.budget || []).map((item: any, i: number) => (
+                                    {budgetArray.map((item: any, i: number) => (
                                         <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
                                             <td className="px-6 py-6 font-bold text-white/80">{item.item}</td>
                                             <td className="px-6 py-6 text-sm text-muted-foreground max-w-md">
                                                 {item.description}
                                                 <div className="mt-2 flex flex-wrap gap-2">
-                                                    {item.breakdown?.map((sub: any, sI: number) => (
+                                                    {(Array.isArray(item.breakdown) ? item.breakdown : []).map((sub: any, sI: number) => (
                                                         <span key={sI} className="text-[10px] bg-black/30 px-2 py-0.5 rounded border border-white/5">
                                                             {sub.subItem} ({sub.quantity})
                                                         </span>
@@ -441,7 +447,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                             </Button>
                         </div>
                         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                            {(proposal.partners || []).map((partner: any, pIdx: number) => (
+                            {partnersArray.map((partner: any, pIdx: number) => (
                                 <Card key={pIdx} className="bg-secondary/10 border-white/5 rounded-3xl p-6 hover:bg-secondary/20 transition-all border-l-4 border-l-indigo-500/50 shadow-xl">
                                     <div className="space-y-4">
                                         <div className="flex items-start justify-between">
