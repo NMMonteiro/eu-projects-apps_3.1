@@ -173,22 +173,7 @@ export function buildProposalPrompt(
       { key: 'impact', label: 'Impact', description: 'Expected change.' }
     ];
 
-  // ALWAYS FORCE 4 WPs in the narrative sections if not present
-  const hasMultipleWPs = allSections.some(s => s.key.includes('work_package_2'));
-  if (!hasMultipleWPs) {
-    const wp1Idx = allSections.findIndex(s => s.key.includes('work_package_1'));
-    const insertIdx = wp1Idx !== -1 ? wp1Idx + 1 : allSections.length;
-
-    if (wp1Idx === -1) {
-      allSections.push({ key: 'work_package_1', label: 'Work Package 1: Management', description: 'Coordination and admin.' });
-    }
-
-    allSections.splice(insertIdx, 0,
-      { key: 'work_package_2', label: 'Work Package 2: Technical Development', description: 'Building the core solution.' },
-      { key: 'work_package_3', label: 'Work Package 3: Implementation', description: 'Deploying and testing.' },
-      { key: 'work_package_4', label: 'Work Package 4: Dissemination', description: 'Sharing results.' }
-    );
-  }
+  // No forced WP count logic - AI will decide based on the project idea and partners
 
   const partnerInfo = partners.length > 0
     ? `\n\nCONSORTIUM PARTNERS (LOADED FROM DATABASE - YOU MUST USE ALL ${partners.length} OF THEM):\n${partners.map((p, i) => `- ${p.name}${p.acronym ? ` (${p.acronym})` : ''} - ${p.country || 'Country'}${p.isCoordinator ? ' [LEAD COORDINATOR]' : ''}\n  - Role: ${p.role || (p.isCoordinator ? 'Project Coordinator' : 'Partner')}\n  - Profile: ${p.description || 'No description'}\n  - Expertise: ${p.experience || ''}`).join('\n')}`
@@ -227,13 +212,14 @@ CONSTRAINTS & REQUIREMENTS:
 ${userRequirements}
 - ALL PARTNERS MUST BE INCLUDED: You have EXACTLY ${partners.length} organizations to distribute work and budget to.
 - EXACT BUDGET: The TOTAL project budget MUST BE EXACTLY ${finalBudgetStr}.
-- EXACT WORK PACKAGES: You MUST generate EXACTLY 4 Work Packages (WP1, WP2, WP3, WP4).
+- DYNAMIC WORK PACKAGES: Generate logically necessary Work Packages (WP1: Management, followed by technical/implementation WPs, and a final Dissemination WP) based on the project scope.
 
 STRICT OUTPUT RULES:
-1. **PARTNERS ARRAY**: The "partners" array in JSON MUST contain EXACTLY ${partners.length} elements. Do not omit the coordinator or any partner.
-2. **COORDINATOR**: The first partner (${partners[0]?.name}) IS THE COORDINATOR. Assign them WP1 and the coordination role.
+1. **PARTNERS ARRAY**: The "partners" array in JSON MUST contain EXACTLY ${partners.length} elements.
+2. **COORDINATOR**: The first partner (${partners[0]?.name}) IS THE COORDINATOR.
 3. **BUDGET ITEMS**: The sum of all "cost" values in the "budget" array MUST EQUAL EXACTLY ${extractedBudget.replace(/[.,]/g, '')}.
-4. **NO TRUNCATION**: Keep narrative sections concise but complete (2-3 paragraphs each).
+4. **CONSISTENCY**: For EVERY entry in the "workPackages" array, there MUST be a corresponding narrative section in "dynamicSections" (using keys like work_package_1, work_package_2, etc.).
+5. **TECHNICAL DEPTH**: Each Work Package description MUST be technical and specific to the project idea.
 
 OUTPUT FORMAT (JSON ONLY):
 {
@@ -248,10 +234,8 @@ OUTPUT FORMAT (JSON ONLY):
       "duration": "M1-M24",
       "activities": [{ "name": "Coordination", "description": "...", "leadPartner": "${partners[0]?.name}", "participatingPartners": [${partners.slice(1).map(p => `"${p.name}"`).join(', ')}], "estimatedBudget": 20000 }],
       "deliverables": ["Management Plan"]
-    },
-    { "name": "WP2: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] },
-    { "name": "WP3: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] },
-    { "name": "WP4: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] }
+    }
+    // Generate all other WPs here based on the project scope
   ],
   "budget": [
     {
@@ -262,12 +246,13 @@ OUTPUT FORMAT (JSON ONLY):
       "partnerAllocations": [${partners.map(p => `{ "partner": "${p.name}", "amount": ${Math.floor((parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.6) / partners.length)} }`).join(', ')}]
     },
     { "item": "Operational Expenses", "cost": ${Math.floor(parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.3)}, "description": "Travel, equipment, etc.", "breakdown": [], "partnerAllocations": [] },
-    { "item": "Miscellaneous / Contingency", "cost": ${Math.floor(parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.1)}, "description": "Adjustment to reach exact target.", "breakdown": [], "partnerAllocations": [] }
+    { "item": "Miscellaneous / Contingency", "cost": ${Math.floor(parseInt(extractedBudget.replace(/[.,]/g, '')) * 0.1)}, "description": "Adjustment to reach target.", "breakdown": [], "partnerAllocations": [] }
   ],
   "risks": [{ "risk": "Technical delay", "likelihood": "Low", "impact": "High", "mitigation": "..." }],
   "summary": "<p>Project summary...</p>",
   "dynamicSections": {
-    ${allSections.map((s: FlatSection) => `"${s.key}": "<p>Technical narrative for ${s.label}...</p>"`).join(',\n    ')}
+    "work_package_1": "<p>Technical narrative for Management...</p>"
+    // Add narrative sections for ALL generated work packages here (work_package_2, work_package_3, etc.)
   }
 }
 

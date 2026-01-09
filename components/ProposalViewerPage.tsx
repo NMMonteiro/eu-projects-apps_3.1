@@ -209,9 +209,23 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
     };
 
     const dynamicSections = proposal.dynamic_sections || proposal.dynamicSections || {};
-    const expectedSections = fundingScheme?.template_json?.sections
+    const templateSections = fundingScheme?.template_json?.sections
         ? getFlattenedSections(fundingScheme.template_json.sections)
-        : Object.keys(dynamicSections).map(k => ({ key: k, label: k.replace(/_/g, ' '), level: 0 }));
+        : [];
+
+    // Create a set of keys already in the template to avoid duplicates
+    const templateKeys = new Set(templateSections.map(s => s.key));
+
+    // Find extra sections in dynamicSections that are NOT in the template
+    const extraSections = Object.keys(dynamicSections)
+        .filter(key => !templateKeys.has(key))
+        .map(key => ({
+            key,
+            label: key.replace(/_/g, ' ').replace(/\w\S*/g, (txt) => txt.charAt(0).toUpperCase() + txt.substr(1).toLowerCase()),
+            level: 0
+        }));
+
+    const expectedSections = [...templateSections, ...extraSections];
 
     return (
         <div className="max-w-7xl mx-auto space-y-8 pb-20 px-4 pt-4">

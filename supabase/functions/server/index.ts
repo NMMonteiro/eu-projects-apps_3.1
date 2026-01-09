@@ -594,6 +594,43 @@ Return ONLY valid JSON, no other text.`;
             );
         }
 
+        // ===== FUNDING SCHEMES CRUD =====
+
+        // GET /funding-schemes - List all
+        if (path.includes('/funding-schemes') && req.method === 'GET' && !path.match(/\/funding-schemes\/[^\/]+$/)) {
+            const supabase = getSupabaseClient();
+            const { data, error } = await supabase
+                .from('funding_schemes')
+                .select('*')
+                .order('name');
+
+            if (error) throw error;
+
+            return new Response(
+                JSON.stringify({ schemes: data }),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
+        // GET /funding-schemes/:id - Get single
+        const schemeMatch = path.match(/\/funding-schemes\/([^\/]+)$/);
+        if (schemeMatch && req.method === 'GET' && !path.includes('/partners')) {
+            const id = schemeMatch[1];
+            const supabase = getSupabaseClient();
+            const { data, error } = await supabase
+                .from('funding_schemes')
+                .select('*')
+                .eq('id', id)
+                .single();
+
+            if (error) throw error;
+
+            return new Response(
+                JSON.stringify(data),
+                { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
+            );
+        }
+
         // ===== PARTNER CRUD =====
 
         // GET /partners - List all
