@@ -1303,7 +1303,11 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                                             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
                                                 <div className="space-y-1">
                                                     <CardTitle className={`${section.level === 1 ? 'text-lg' : 'text-base uppercase tracking-wide text-primary/70'} font-semibold text-foreground/90`}>
-                                                        {section.title.replace(/^undefined\s*/gi, '').replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}
+                                                        {section.title
+                                                            .replace(/^undefined\s*/gi, '')
+                                                            .replace(/\s*-\s*null$/i, '')
+                                                            .replace(/_/g, ' ')
+                                                            .replace(/\b\w/g, l => l.toUpperCase())}
                                                     </CardTitle>
                                                     {section.description && (
                                                         <p className="text-[10px] text-muted-foreground italic max-w-2xl leading-relaxed">

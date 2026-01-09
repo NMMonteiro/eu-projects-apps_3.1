@@ -44,6 +44,7 @@ export function PartnerSelectionModal({ isOpen, onClose, onConfirm, selectedIdea
             const response = await fetch(`${serverUrl}/partners`, {
                 headers: {
                     'Authorization': `Bearer ${publicAnonKey}`,
+                    'apikey': publicAnonKey,
                 },
             });
 

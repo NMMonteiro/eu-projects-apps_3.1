@@ -128,10 +128,12 @@ Deno.serve(async (req) => {
     }
 
     try {
+        console.log(`[REQUEST] ${req.method} ${path}`);
+
         // ===== HEALTH CHECK =====
-        if (path === '/' || path === '') {
+        if (path === '/' || path === '' || path.endsWith('/server')) {
             return new Response(
-                JSON.stringify({ status: 'ok', message: 'AI Proposal Generator API v2' }),
+                JSON.stringify({ status: 'ok', message: 'AI Proposal Generator API v2', path }),
                 { headers: { ...corsHeaders, 'Content-Type': 'application/json' } }
             );
         }
@@ -647,14 +649,26 @@ Return ONLY valid JSON, no other text.`;
 
         // GET /partners/:id - Get single
         if (path.match(/\/partners\/[^\/]+$/) && req.method === 'GET') {
-            const id = path.split('/').pop();
-            const supabase = getSupabaseClient();
+            const id = path.split('/').pop() || '';
+            console.log(`[PARTNER] Fetching single partner: ${id}`);
 
-            const { data: p, error } = await supabase
-                .from('partners')
-                .select('*')
-                .eq('id', id)
-                .single();
+            const supabase = getSupabaseClient();
+            let p = null;
+
+            // Only attempt DB query if ID looks like a UUID
+            const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+
+            if (isUuid) {
+                const { data, error } = await supabase
+                    .from('partners')
+                    .select('*')
+                    .eq('id', id)
+                    .single();
+                if (data) p = data;
+                if (error && error.code !== 'PGRST116') {
+                    console.error('[PARTNER] DB Error:', error);
+                }
+            }
 
             if (p) {
                 // Map snake_case to camelCase
