@@ -1,2356 +1,368 @@
 import React, { useState, useEffect } from 'react';
-import { ArrowLeft, Download, Share2, FileText, LayoutGrid, Users, Calendar, DollarSign, AlertTriangle, CheckCircle2, Layers, Plus, Trash2, Settings, ChevronDown, ChevronUp, Folder, Edit, Sparkles, MoreHorizontal, MoreVertical, Building2, Globe, Mail, Terminal } from 'lucide-react';
+import {
+    Loader2, Save, Download, Eye, ArrowLeft,
+    Layers, Users, DollarSign, AlertTriangle,
+    FileText, CheckCircle2, ChevronDown, Sparkles,
+    Terminal, Settings, Layout, Search, Filter,
+    Plus, Trash2, Edit, Save as SaveIcon, X
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
 import { serverUrl, publicAnonKey } from '../utils/supabase/info';
-import { supabase } from '../utils/supabase';
-import type { FullProposal } from '../types/proposal';
-import { PartnerSelectionModal } from './PartnerSelectionModal';
-import { exportToDocx } from '../utils/export-docx';
-import { DeleteConfirmDialog } from '@/components/ui/delete-confirm-dialog';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { Select, Label } from '@/components/ui/primitives';
-import type { ProposalSettings } from '../types/proposal';
-import { ProposalCopilot } from './ProposalCopilot';
 
 interface ProposalViewerPageProps {
     proposalId: string;
     onBack: () => void;
 }
 
-// Helper to transform wide tables into responsive card lists
-function transformWideTables(html: string): string {
-    if (!html || typeof window === 'undefined') return html;
-    if (!html.includes('<table')) return html;
-
-    try {
-        const parser = new DOMParser();
-        const doc = parser.parseFromString(html, 'text/html');
-        const tables = doc.querySelectorAll('table');
-        let modified = false;
-
-        tables.forEach(table => {
-            const rows = Array.from(table.rows);
-            if (rows.length === 0) return;
-
-            let headers: string[] = [];
-            const thead = table.querySelector('thead');
-            if (thead && thead.rows.length > 0) {
-                headers = Array.from(thead.rows[0].cells).map(c => c.textContent?.trim() || "");
-            } else {
-                headers = Array.from(rows[0].cells).map(c => c.textContent?.trim() || "");
-            }
-
-            const colCount = headers.length;
-            if (colCount <= 4) return; // Only transform wide tables
-
-            modified = true;
-            const container = doc.createElement('div');
-            container.className = "space-y-4 my-6 not-prose"; // not-prose to escape typography styles
-
-            const dataRows = Array.from(table.querySelectorAll('tr')).filter(tr =>
-                !tr.parentElement || tr.parentElement.tagName !== 'THEAD'
-            );
-
-            // Check if headers matched first data row
-            if (!thead && dataRows.length > 0 && headers.join('|') === Array.from(dataRows[0].cells).map(c => c.textContent?.trim() || "").join('|')) {
-                dataRows.shift();
-            }
-
-            dataRows.forEach((tr, idx) => {
-                const cells = Array.from(tr.cells);
-                const title = cells[0]?.textContent?.trim() || `Item ${idx + 1}`;
-
-                const card = doc.createElement('div');
-                card.className = "bg-card/50 border border-border/60 rounded-lg p-4 shadow-sm";
-
-                const headerDiv = doc.createElement('div');
-                headerDiv.className = "font-semibold text-base mb-3 text-primary border-b border-border/40 pb-2";
-                headerDiv.textContent = title;
-                card.appendChild(headerDiv);
-
-                const contentGrid = doc.createElement('div');
-                contentGrid.className = "grid gap-3 sm:grid-cols-1 md:grid-cols-2 lg:grid-cols-3";
-
-                cells.forEach((cell, cIdx) => {
-                    if (cIdx === 0) return;
-
-                    const label = headers[cIdx] || `Column ${cIdx + 1}`;
-                    const value = cell.innerHTML.trim();
-                    if (!value) return;
-
-                    const fieldDiv = doc.createElement('div');
-                    fieldDiv.className = "flex flex-col text-sm";
-
-                    const labelSpan = doc.createElement('span');
-                    labelSpan.className = "font-medium text-muted-foreground text-[10px] uppercase tracking-wider mb-1";
-                    labelSpan.textContent = label;
-
-                    const valueDiv = doc.createElement('div');
-                    valueDiv.className = "text-foreground/90 text-xs break-words";
-                    valueDiv.innerHTML = value;
-
-                    fieldDiv.appendChild(labelSpan);
-                    fieldDiv.appendChild(valueDiv);
-                    contentGrid.appendChild(fieldDiv);
-                });
-                card.appendChild(contentGrid);
-                container.appendChild(card);
-            });
-
-            table.replaceWith(container);
-        });
-
-        if (modified) return doc.body.innerHTML;
-        return html;
-    } catch (e) {
-        console.error("Error transforming tables", e);
-        return html;
-    }
-}
-
-const ResponsiveSectionContent = ({ content }: { content: string }) => {
-    const [processed, setProcessed] = useState(content);
-    useEffect(() => {
-        setProcessed(transformWideTables(content));
-    }, [content]);
-    return <div dangerouslySetInnerHTML={{ __html: processed }} />;
-};
-
-const DynamicWorkPackageSection = ({ workPackages, limitToIndex, currency, sectionTitle }: { workPackages: any[], limitToIndex?: number, currency?: string, sectionTitle?: string }) => {
-    if (!workPackages || workPackages.length === 0) {
-        return <div className="p-4 text-center text-muted-foreground italic border border-dashed rounded-lg">No work packages defined yet.</div>;
-    }
-
-    let displayWPs = limitToIndex !== undefined ? [workPackages[limitToIndex]].filter(Boolean) : [];
-
-    // Fallback search by name if index didn't work and we have a section title
-    if (displayWPs.length === 0 && sectionTitle) {
-        const titleLower = sectionTitle.toLowerCase();
-        const found = workPackages.find(wp =>
-            wp.name.toLowerCase().includes(titleLower) ||
-            titleLower.includes(wp.name.toLowerCase())
-        );
-        if (found) displayWPs = [found];
-    }
-
-    // Default to show nothing if we specifically asked for an index that doesn't exist
-    if (limitToIndex !== undefined && displayWPs.length === 0) {
-        return <div className="p-4 text-center text-muted-foreground italic border border-dashed rounded-lg">Work Package data not found in structured records.</div>;
-    }
-
-    // If no specific index requested, show all
-    if (limitToIndex === undefined && displayWPs.length === 0) {
-        displayWPs = workPackages;
-    }
-
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: currency || 'EUR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(amount);
-    };
-
-    return (
-        <div className="space-y-6">
-            {displayWPs.map((wp, i) => {
-                const actualIndex = limitToIndex !== undefined ? limitToIndex : i;
-                return (
-                    <Card key={actualIndex} className="bg-card/30 border-border/40 overflow-hidden">
-                        <CardHeader className="pb-3 bg-secondary/10">
-                            <div className="flex justify-between items-start">
-                                <div>
-                                    <div className="flex items-center gap-2 mb-1">
-                                        <Badge variant="outline" className="border-primary/30 text-primary bg-primary/5 uppercase text-[10px] px-2 py-0">Work Package {actualIndex + 1}</Badge>
-                                        {wp.duration && <span className="text-[10px] text-muted-foreground font-mono bg-white/5 px-2 py-0 rounded">{wp.duration}</span>}
-                                    </div>
-                                    <CardTitle className="text-xl font-bold tracking-tight">{wp.name}</CardTitle>
-                                </div>
-                            </div>
-                        </CardHeader>
-                        <CardContent className="space-y-6 pt-6">
-                            {/* Description */}
-                            <div className="space-y-2">
-                                <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">Objectives & Description</h5>
-                                <div className="prose prose-invert prose-sm max-w-none text-muted-foreground/90 leading-relaxed"
-                                    dangerouslySetInnerHTML={{ __html: wp.description }} />
-                            </div>
-
-                            <div className="grid grid-cols-1 gap-6">
-                                {/* Activities */}
-                                {wp.activities && wp.activities.length > 0 && (
-                                    <div className="bg-blue-500/5 rounded-xl p-5 border border-blue-500/10">
-                                        <div className="flex items-center gap-2 mb-4">
-                                            <div className="p-1.5 rounded-md bg-blue-500/20">
-                                                <Layers className="h-3.5 w-3.5 text-blue-400" />
-                                            </div>
-                                            <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-blue-400">Implementation Activities</h5>
-                                        </div>
-                                        <div className="space-y-4">
-                                            {wp.activities.map((act: any, aIdx: number) => {
-                                                const activityName = typeof act === 'string' ? act : act.name || act.activity;
-                                                const activityDesc = typeof act === 'object' ? act.description : null;
-                                                const leadPartner = typeof act === 'object' ? act.leadPartner : null;
-                                                const participating = typeof act === 'object' ? act.participatingPartners : null;
-                                                const budget = typeof act === 'object' ? act.estimatedBudget : null;
-
-                                                return (
-                                                    <div key={aIdx} className="relative pl-10 pb-4 border-l border-blue-500/20 last:pb-0 last:border-l-0">
-                                                        <div className="absolute left-[-9px] top-0 h-4 w-4 rounded-full bg-blue-500 flex items-center justify-center text-[9px] font-bold text-white shadow-[0_0_10px_rgba(59,130,246,0.5)]">
-                                                            {aIdx + 1}
-                                                        </div>
-                                                        <div className="bg-white/5 rounded-lg p-3 border border-white/5 hover:border-blue-500/30 transition-all">
-                                                            <div className="flex flex-wrap items-start justify-between gap-2 mb-2">
-                                                                <span className="text-sm font-semibold text-foreground/90">{activityName}</span>
-                                                                {budget && (
-                                                                    <Badge variant="secondary" className="bg-blue-500/10 text-blue-400 border-none font-mono text-[10px]">
-                                                                        {formatCurrency(budget)}
-                                                                    </Badge>
-                                                                )}
-                                                            </div>
-                                                            {activityDesc && <p className="text-xs text-muted-foreground/80 mb-3 leading-relaxed">{activityDesc}</p>}
-
-                                                            <div className="flex flex-wrap gap-4 mt-2 pt-2 border-t border-white/5">
-                                                                {leadPartner && (
-                                                                    <div className="flex flex-col">
-                                                                        <span className="text-[8px] uppercase font-bold text-blue-400/70 tracking-tighter">Lead Partner</span>
-                                                                        <span className="text-[10px] text-foreground/80">{leadPartner}</span>
-                                                                    </div>
-                                                                )}
-                                                                {participating && participating.length > 0 && (
-                                                                    <div className="flex flex-col">
-                                                                        <span className="text-[8px] uppercase font-bold text-muted-foreground tracking-tighter">Participating</span>
-                                                                        <span className="text-[10px] text-muted-foreground/80">{participating.join(', ')}</span>
-                                                                    </div>
-                                                                )}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                );
-                                            })}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {/* Deliverables */}
-                                {wp.deliverables && wp.deliverables.length > 0 && (
-                                    <div className="bg-green-500/5 rounded-xl p-5 border border-green-500/10 h-full">
-                                        <div className="flex items-center gap-2 mb-4">
-                                            <div className="p-1.5 rounded-md bg-green-500/20">
-                                                <CheckCircle2 className="h-3.5 w-3.5 text-green-400" />
-                                            </div>
-                                            <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-green-400">Key Deliverables</h5>
-                                        </div>
-                                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                                            {wp.deliverables.map((del: string, dIdx: number) => (
-                                                <div key={dIdx} className="flex items-center gap-2 bg-white/5 p-2 rounded border border-white/5">
-                                                    <CheckCircle2 className="h-3 w-3 text-green-400/60 shrink-0" />
-                                                    <span className="text-[11px] text-muted-foreground/90 truncate">{del}</span>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
-                        </CardContent>
-                    </Card>
-                );
-            })}
-        </div>
-    );
-};
-
-const PartnerSummarySection = ({ summary, currency }: { summary: any[], currency: string }) => {
-    if (!summary || summary.length === 0) return null;
-
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: currency || 'EUR',
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(amount);
-    };
-
-    return (
-        <div className="space-y-4">
-            <h5 className="text-[10px] font-bold uppercase tracking-[0.2em] text-primary/70">Budget Allocation per Partner</h5>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                {summary.map((p, idx) => (
-                    <Card key={idx} className="bg-card/30 border-border/40 hover:border-primary/20 transition-all">
-                        <CardContent className="pt-4 pb-4">
-                            <div className="flex justify-between items-start mb-2">
-                                <span className="text-sm font-bold text-foreground/90 truncate mr-2" title={p.partner}>{p.partner}</span>
-                                <Badge variant="secondary" className="bg-primary/10 text-primary border-none text-[10px]">{p.percentage}</Badge>
-                            </div>
-                            <div className="text-lg font-mono font-bold text-primary">
-                                {typeof p.total === 'number' ? formatCurrency(p.total) : p.total}
-                            </div>
-                        </CardContent>
-                    </Card>
-                ))}
-            </div>
-        </div>
-    );
-};
-
-const DynamicBudgetSection = ({ budget, currency }: { budget: any[], currency: string }) => {
-    if (!budget || budget.length === 0) return null;
-
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: currency,
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(amount);
-    };
-
-    const total = budget.reduce((sum, item) => sum + (item.cost || 0), 0);
-
-    return (
-        <div className="space-y-4">
-            <div className="border rounded-xl overflow-hidden border-border/40 bg-card/20">
-                <table className="w-full text-sm border-collapse">
-                    <thead className="bg-secondary/40">
-                        <tr className="border-b border-border/40">
-                            <th className="text-left py-3 px-4 font-semibold text-foreground/70 w-1/2">Item & Description</th>
-                            <th className="text-right py-3 px-4 font-semibold text-foreground/70">Cost</th>
-                        </tr>
-                    </thead>
-                    <tbody className="divide-y divide-border/20">
-                        {budget.map((item, i) => (
-                            <React.Fragment key={i}>
-                                <tr className="hover:bg-white/5 transition-colors">
-                                    <td className="py-3 px-4">
-                                        <div className="font-medium text-foreground/90">{item.item}</div>
-                                        <div className="text-xs text-muted-foreground mt-0.5">{item.description}</div>
-                                        {item.partnerAllocations && (
-                                            <div className="mt-2 flex flex-wrap gap-2">
-                                                {item.partnerAllocations.map((alloc: any, aIdx: number) => (
-                                                    <span key={aIdx} className="text-[9px] bg-white/5 px-1.5 py-0.5 rounded text-muted-foreground border border-white/5">
-                                                        <span className="font-bold mr-1">{alloc.partner}:</span>
-                                                        {formatCurrency(alloc.amount)}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </td>
-                                    <td className="py-3 px-4 text-right font-mono text-primary/90">
-                                        {formatCurrency(item.cost)}
-                                    </td>
-                                </tr>
-                            </React.Fragment>
-                        ))}
-                    </tbody>
-                    <tfoot className="bg-primary/5">
-                        <tr className="font-bold border-t border-primary/20">
-                            <td className="py-3 px-4 text-foreground/90">Total Estimated Budget</td>
-                            <td className="py-3 px-4 text-right font-mono text-primary">
-                                {formatCurrency(total)}
-                            </td>
-                        </tr>
-                    </tfoot>
-                </table>
-            </div>
-        </div>
-    );
-};
-
-const DynamicRiskSection = ({ risks }: { risks: any[] }) => {
-    if (!risks || risks.length === 0) return null;
-    return (
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            {risks.map((risk, i) => (
-                <Card key={i} className="bg-card/30 border-border/40 hover:border-primary/20 transition-all">
-                    <CardHeader className="pb-2">
-                        <div className="flex justify-between items-start">
-                            <CardTitle className="text-sm font-bold text-foreground/90">{risk.risk}</CardTitle>
-                            <Badge variant={risk.impact?.toLowerCase().includes('high') ? 'destructive' : 'secondary'} className="text-[9px] uppercase">
-                                {risk.impact} Impact
-                            </Badge>
-                        </div>
-                    </CardHeader>
-                    <CardContent className="space-y-2">
-                        <div className="flex items-center gap-2 text-xs">
-                            <span className="text-muted-foreground">Likelihood:</span>
-                            <span className="font-medium">{risk.likelihood}</span>
-                        </div>
-                        <div className="pt-2 border-t border-border/20">
-                            <span className="text-[10px] uppercase font-bold text-primary/70 block mb-1">Mitigation Strategy</span>
-                            <p className="text-xs text-muted-foreground leading-relaxed italic">"{risk.mitigation}"</p>
-                        </div>
-                    </CardContent>
-                </Card>
-            ))}
-        </div>
-    );
-};
-
-const DynamicPartnerSection = ({ partners }: { partners: import('../types/partner').Partner[] }) => {
-    if (!partners || partners.length === 0) {
-        return <div className="p-4 text-center text-muted-foreground italic border border-dashed rounded-lg">No partners added yet. Please add partners in the 'Structured Data' tab to populate this section.</div>;
-    }
-    return (
-        <div className="space-y-6">
-            {partners.map((p, i) => (
-                <Card key={i} className="bg-card/50 border-border/60">
-                    <CardHeader className="pb-2">
-                        <CardTitle className="text-lg text-primary flex items-center justify-between">
-                            <div className="flex items-center gap-2">
-                                <Building2 className="h-5 w-5 opacity-70" />
-                                {p.name}
-                            </div>
-                            {p.isCoordinator && <Badge className="bg-primary/20 text-primary border-primary/30">Coordinator</Badge>}
-                        </CardTitle>
-                        {p.country && (
-                            <div className="flex items-center gap-1.5 text-xs text-muted-foreground">
-                                <Globe className="h-3 w-3" />
-                                {p.country} {p.city ? `(${p.city})` : ''}
-                            </div>
-                        )}
-                    </CardHeader>
-                    <CardContent className="space-y-4 text-sm mt-2">
-                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 bg-secondary/20 p-4 rounded-xl border border-border/40">
-                            {p.organisationId && (
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-[10px] uppercase text-primary/70 tracking-wider">OID / PIC</span>
-                                    <span className="font-mono text-xs">{p.organisationId}</span>
-                                </div>
-                            )}
-                            {p.organizationType && (
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-[10px] uppercase text-primary/70 tracking-wider">Type</span>
-                                    <span className="truncate">{p.organizationType}</span>
-                                </div>
-                            )}
-                            {p.website && (
-                                <div className="flex flex-col">
-                                    <span className="font-bold text-[10px] uppercase text-primary/70 tracking-wider">Website</span>
-                                    <a href={p.website} target="_blank" rel="noopener noreferrer" className="text-foreground hover:text-primary transition-colors underline decoration-primary/30 truncate">
-                                        {p.website.replace(/^https?:\/\//, '')}
-                                    </a>
-                                </div>
-                            )}
-                        </div>
-
-                        {p.description && (
-                            <div>
-                                <div className="font-bold text-[10px] uppercase text-primary/70 tracking-wider mb-1">Institutional Profile</div>
-                                <div className="text-muted-foreground/90 text-xs leading-relaxed line-clamp-4 hover:line-clamp-none transition-all cursor-default">
-                                    {p.description}
-                                </div>
-                            </div>
-                        )}
-
-                        {p.experience && (
-                            <div className="pt-3 border-t border-border/30">
-                                <div className="font-bold text-[10px] uppercase text-primary/70 tracking-wider mb-1">Relevant Expertise</div>
-                                <div className="text-muted-foreground/90 text-xs leading-relaxed italic line-clamp-3 hover:line-clamp-none transition-all cursor-default">
-                                    {p.experience}
-                                </div>
-                            </div>
-                        )}
-                    </CardContent>
-                </Card>
-            ))}
-        </div>
-    );
-};
-
 export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPageProps) {
-    const [proposal, setProposal] = useState<FullProposal | null>(null);
+    const [proposal, setProposal] = useState<any>(null);
     const [loading, setLoading] = useState(true);
-    const [activeTab, setActiveTab] = useState('narrative');
-    const [isPartnerModalOpen, setIsPartnerModalOpen] = useState(false);
-    const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
-    const [partnerToRemove, setPartnerToRemove] = useState<{ index: number; name: string } | null>(null);
-    const [budgetLimit, setBudgetLimit] = useState<number>(0);
-    const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-    const [settings, setSettings] = useState<ProposalSettings>({ currency: 'EUR', sourceUrl: '' });
-    const [urlError, setUrlError] = useState<string>('');
-    const [isCopilotOpen, setIsCopilotOpen] = useState(false);
-
-    const [newlyAddedSubItem, setNewlyAddedSubItem] = useState<string | null>(null);
-    const [isAiSectionDialogOpen, setIsAiSectionDialogOpen] = useState(false);
-    const [aiSectionPrompt, setAiSectionPrompt] = useState('');
-    const [isGeneratingSection, setIsGeneratingSection] = useState(false);
-
-    // Editing State
-    const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
-    const [editingSectionId, setEditingSectionId] = useState<string | null>(null);
-    const [editingSectionTitle, setEditingSectionTitle] = useState('');
-    const [editingContent, setEditingContent] = useState('');
-    const [aiEditInstruction, setAiEditInstruction] = useState('');
-    const [isAiEditing, setIsAiEditing] = useState(false);
-    const [showPrompt, setShowPrompt] = useState(false);
-    const [isExporting, setIsExporting] = useState(false);
-
-    const formatCurrency = (amount: number) => {
-        return new Intl.NumberFormat('en-US', {
-            style: 'currency',
-            currency: settings.currency,
-            minimumFractionDigits: 0,
-            maximumFractionDigits: 0
-        }).format(amount);
-    };
-
-    const getCurrencySymbol = (currency: string) => {
-        return (0).toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0 }).replace(/\d/g, '').trim();
-    };
-
-    const calculateTotal = (budget: any[]) => {
-        if (!budget) return 0;
-        return budget.reduce((sum, item) => {
-            if (item.breakdown && item.breakdown.length > 0) {
-                return sum + item.breakdown.reduce((subSum: number, sub: any) => subSum + (sub.total || 0), 0);
-            }
-            return sum + (item.cost || 0);
-        }, 0);
-    };
+    const [activeTab, setActiveTab] = useState<'structured' | 'narrative' | 'settings'>('structured');
+    const [expandedWp, setExpandedWp] = useState<number | null>(0);
 
     useEffect(() => {
         loadProposal();
     }, [proposalId]);
 
     const loadProposal = async () => {
+        setLoading(true);
         try {
             const response = await fetch(`${serverUrl}/proposals/${proposalId}`, {
-                headers: {
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
+                headers: { 'Authorization': `Bearer ${publicAnonKey}` }
             });
-
-            if (!response.ok) {
-                throw new Error('Failed to load proposal');
-            }
-
+            if (!response.ok) throw new Error('Failed to load proposal');
             const data = await response.json();
-
-            // 1. Enrich with Funding Scheme data if ID exists but object is missing
-            if (data.funding_scheme_id && !data.funding_scheme) {
-                try {
-                    const { data: scheme } = await supabase
-                        .from('funding_schemes')
-                        .select('*')
-                        .eq('id', data.funding_scheme_id)
-                        .single();
-                    if (scheme) {
-                        data.fundingScheme = scheme;
-                        data.funding_scheme = scheme;
-                    }
-                } catch (e) {
-                    console.warn('Could not fetch linked funding scheme details', e);
-                }
-            }
-
-            // 2. HYDRATE PARTNERS (Critical for DOCX technical data)
-            // Even if partners are stored, they might be missing full technical metadata (OID, VAT, etc.)
-            if (data.partners && data.partners.length > 0) {
-                try {
-                    const partnerIds = data.partners.map((p: any) => p.id).filter(Boolean);
-
-                    // Filter out legacy or non-UUID IDs to prevent Supabase query errors (type uuid)
-                    const validUuidPattern = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-                    const uuidIds = partnerIds.filter((id: string) => validUuidPattern.test(id));
-
-                    if (uuidIds.length > 0) {
-                        console.log("Hydrating partners with DB IDs:", uuidIds);
-                        const { data: dbPartners, error: partnersError } = await supabase
-                            .from('partners')
-                            .select('*')
-                            .in('id', uuidIds);
-
-                        if (partnersError) {
-                            console.error('Partner hydration query failed:', partnersError);
-                            return;
-                        }
-
-                        if (dbPartners && dbPartners.length > 0) {
-                            console.log(`Found ${dbPartners.length} matching partners in DB. Merging technical metadata...`);
-                            // Merge DB metadata into current partners (preserving project-specific roles/descriptions)
-                            data.partners = data.partners.map((p: any) => {
-                                const dbp = dbPartners.find(db => db.id === p.id);
-                                if (!dbp) return p;
-                                return {
-                                    ...p, // Keep project specific role/narrative (isCoordinator if already set)
-                                    id: dbp.id,
-                                    name: dbp.name || p.name,
-                                    legalNameNational: dbp.legal_name_national || p.legalNameNational || p.name,
-                                    acronym: dbp.acronym || p.acronym,
-                                    organisationId: dbp.organisation_id || dbp.pic || p.organisationId,
-                                    pic: dbp.pic || p.pic,
-                                    vatNumber: dbp.vat_number || p.vatNumber,
-                                    businessId: dbp.business_id || p.businessId,
-                                    organizationType: dbp.organization_type || p.organizationType,
-                                    country: dbp.country || p.country,
-                                    legalAddress: dbp.legal_address || p.legalAddress,
-                                    city: dbp.city || p.city,
-                                    postcode: dbp.postcode || p.postcode,
-                                    region: dbp.region || p.region,
-                                    website: dbp.website || p.website,
-                                    contactEmail: dbp.contact_email || p.contactEmail,
-                                    contactPersonName: dbp.contact_person_name || p.contactPersonName,
-                                    contactPersonEmail: dbp.contact_person_email || p.contactPersonEmail,
-                                    contactPersonPhone: dbp.contact_person_phone || p.contactPersonPhone,
-                                    contactPersonRole: dbp.contact_person_role || p.contactPersonRole,
-                                    legalRepName: dbp.legal_rep_name || p.legalRepName,
-                                    legalRepEmail: dbp.legal_rep_email || p.legalRepEmail,
-                                    legalRepPhone: dbp.legal_rep_phone || p.legalRepPhone,
-                                    legalRepPosition: dbp.legal_rep_position || p.legalRepPosition,
-                                    experience: dbp.experience || p.experience,
-                                    staffSkills: dbp.staff_skills || p.staffSkills,
-                                    relevantProjects: dbp.relevant_projects || p.relevantProjects,
-                                    isCoordinator: p.isCoordinator ?? p.is_coordinator ?? dbp.is_coordinator ?? (p.role === 'Coordinator'),
-                                    description: p.description || dbp.description // Prefer project-specific description
-                                };
-                            });
-                        }
-                    }
-                } catch (error) {
-                    console.error("Error hydrating partners:", error);
-                }
-            }
-
-            console.log("Setting proposal state with partners count:", data.partners?.length);
             setProposal(data);
-
-            // Initialize budget limit from constraints if available
-            if (data.constraints?.budget) {
-                // Try to extract number from string like "50000 EUR" or "€50,000"
-                const limitMatch = data.constraints.budget.replace(/,/g, '').match(/(\d+)/);
-                if (limitMatch) {
-                    setBudgetLimit(parseInt(limitMatch[0]));
-                }
-            }
-
-            // Initialize settings
-            if (data.settings) {
-                setSettings(data.settings);
-            } else {
-                setSettings({
-                    currency: 'EUR',
-                    sourceUrl: data.projectUrl || ''
-                });
-            }
-        } catch (error: any) {
+        } catch (error) {
             console.error('Load error:', error);
-            toast.error(error.message || 'Failed to load proposal');
+            toast.error('Failed to load proposal details');
         } finally {
             setLoading(false);
         }
     };
 
-    const handleExportToDocx = async () => {
-        if (!proposal) return;
-
-        setIsExporting(true);
-        toast.info("Syncing and generating document...");
-
-        try {
-            // 1. Sync current state to database first (Data Consistency)
-            const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify(proposal),
-            });
-
-            if (!response.ok) throw new Error('Failed to sync proposal before export');
-
-            // 2. Trigger DOCX export
-            await exportToDocx(proposal);
-            toast.success("Proposal exported successfully!");
-        } catch (error) {
-            console.error('Export error:', error);
-            toast.error('Failed to export. Changes were saved but download failed.');
-        } finally {
-            setIsExporting(false);
-        }
-    };
-
-    const handleAddPartners = async (selectedPartners: any[]) => {
-        if (!proposal) return;
-
-        const newPartners = selectedPartners.map(p => ({
-            ...p,
-            role: p.role || 'Partner',
-            isCoordinator: p.isCoordinator || false
-        }));
-
-        const updatedProposal = {
-            ...proposal,
-            partners: [...(proposal.partners || []), ...newPartners]
-        };
-
-        setProposal(updatedProposal);
-
-        // Save to backend
-        try {
-            const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
-                method: 'PUT', // Assuming PUT updates the whole resource
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify(updatedProposal),
-            });
-
-            if (!response.ok) throw new Error('Failed to update proposal');
-            toast.success('Partners added successfully');
-        } catch (error) {
-            console.error('Update error:', error);
-            toast.error('Failed to save changes');
-        }
-    };
-
-    const handleRemovePartnerClick = (index: number, name: string) => {
-        setPartnerToRemove({ index, name });
-        setDeleteDialogOpen(true);
-    };
-
-    const handleRemovePartnerConfirm = async () => {
-        if (!proposal) return;
-        if (!partnerToRemove) return;
-
-        const { index, name } = partnerToRemove;
-        setDeleteDialogOpen(false);
-
-        const updatedPartners = [...(proposal.partners || [])];
-        updatedPartners.splice(index, 1);
-
-        const updatedProposal = {
-            ...proposal,
-            partners: updatedPartners
-        };
-
-        setProposal(updatedProposal);
-
-        // Save to backend
-        try {
-            const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify(updatedProposal),
-            });
-
-            if (!response.ok) throw new Error('Failed to update proposal');
-            toast.success(`${name} removed from proposal`);
-        } catch (error) {
-            console.error('Update error:', error);
-            toast.error('Failed to save changes');
-            // Revert on error
-            setProposal(proposal);
-        } finally {
-            setPartnerToRemove(null);
-        }
-    };
-
-    const handleSaveSettings = (newSettings: ProposalSettings) => {
-        if (!proposal) return;
-        setSettings(newSettings);
-        const updatedProposal = { ...proposal, settings: newSettings };
-        setProposal(updatedProposal);
-    };
-
-    const saveSettingsToBackend = async () => {
-        if (!proposal) return;
-
-        let proposalToSave = { ...proposal };
-        const updates: string[] = [];
-
-        // --- 1. BUDGET RESCALING ---
-        const maxBudgetParam = settings.customParams?.find(p =>
-            p.key.toLowerCase().includes('max budget') ||
-            p.key.toLowerCase().includes('total budget')
-        );
-
-        if (maxBudgetParam) {
-            const cleanValue = maxBudgetParam.value.replace(/,/g, '').replace(/[^0-9.]/g, '');
-            const newLimit = parseFloat(cleanValue);
-            const currentTotal = calculateTotal(proposal.budget || []);
-
-            if (!isNaN(newLimit) && newLimit > 0 && currentTotal > 0 && Math.abs(currentTotal - newLimit) > 5) {
-                const factor = newLimit / currentTotal;
-                const newBudget = (proposal.budget || []).map(item => {
-                    const newItem = { ...item };
-                    if (newItem.breakdown && newItem.breakdown.length > 0) {
-                        newItem.breakdown = newItem.breakdown.map(sub => {
-                            const newUnitCost = Math.round((sub.unitCost * factor) * 100) / 100;
-                            return { ...sub, unitCost: newUnitCost, total: sub.quantity * newUnitCost };
-                        });
-                        newItem.cost = newItem.breakdown.reduce((sum, sub) => sum + sub.total, 0);
-                    } else {
-                        newItem.cost = Math.round((item.cost * factor) * 100) / 100;
-                    }
-                    return newItem;
-                });
-                proposalToSave.budget = newBudget;
-                setBudgetLimit(newLimit);
-                updates.push(`Budget rescaled to ${formatCurrency(newLimit)}`);
-            }
-        }
-
-        // --- 2. TIMELINE RESCALING (Duration) ---
-        const durationParam = settings.customParams?.find(p => p.key.toLowerCase().includes('duration'));
-        if (durationParam) {
-            const newDuration = parseInt(durationParam.value.replace(/[^0-9]/g, ''));
-            const timeline = proposal.timeline || [];
-
-            if (!isNaN(newDuration) && newDuration > 0 && timeline.length > 0) {
-                const currentDuration = timeline[timeline.length - 1].endMonth;
-                if (Math.abs(currentDuration - newDuration) >= 1) {
-                    const factor = newDuration / currentDuration;
-                    let previousEnd = 0;
-
-                    const newTimeline = timeline.map((phase, idx) => {
-                        const newStart = previousEnd + 1;
-                        // Force last phase to match exact duration, otherwise scale
-                        let newEnd = (idx === timeline.length - 1)
-                            ? newDuration
-                            : Math.round(phase.endMonth * factor);
-
-                        // Ensure phase has at least 1 month and stays sequential
-                        if (newEnd < newStart) newEnd = newStart;
-                        previousEnd = newEnd;
-
-                        return { ...phase, startMonth: newStart, endMonth: newEnd };
-                    });
-
-                    proposalToSave.timeline = newTimeline;
-                    updates.push(`Timeline adjusted to ${newDuration} months`);
-                }
-            }
-        }
-
-        // --- 3. PARTNER REQUIREMENTS CHECK ---
-        const partnerReqParam = settings.customParams?.find(p => p.key.toLowerCase().includes('partner') && p.key.toLowerCase().includes('requirement'));
-        if (partnerReqParam) {
-            // Check for simple min/minmium N constraints
-            const minPartnersMatch = partnerReqParam.value.match(/(?:min|minimum|at least)\s*:?\s*(\d+)/i);
-            if (minPartnersMatch) {
-                const minPartners = parseInt(minPartnersMatch[1]);
-                const currentPartners = (proposal.partners || []).length;
-                if (!isNaN(minPartners) && currentPartners < minPartners) {
-                    toast.warning(`Warning: You have ${currentPartners} partners, but requirement is ${minPartners}.`);
-                }
-            }
-        }
-
-        // Update local proposal state
-        setProposal(proposalToSave);
-
-        try {
-            const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify(proposalToSave),
-            });
-
-            if (!response.ok) throw new Error('Failed to update settings');
-
-            if (updates.length > 0) {
-                toast.success(`Saved with updates: ${updates.join(', ')}`);
-            } else {
-                toast.success('Settings saved successfully');
-            }
-            setIsSettingsOpen(false);
-        } catch (error) {
-            console.error('Update error:', error);
-            toast.error('Failed to save settings');
-        }
-    };
-
-    const handleEditSection = (sectionId: string, title: string, content: string) => {
-        setEditingSectionId(sectionId);
-        setEditingSectionTitle(title);
-        setEditingContent(content);
-        setAiEditInstruction('');
-        setIsEditDialogOpen(true);
-    };
-
-    const handleManualSave = async () => {
-        if (!proposal || !editingSectionId) return;
-
-        const updatedProposal = { ...proposal, [editingSectionId]: editingContent };
-        setProposal(updatedProposal);
-        setIsEditDialogOpen(false);
-
-        try {
-            const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify(updatedProposal),
-            });
-
-            if (!response.ok) throw new Error('Failed to update section');
-            toast.success('Section updated successfully');
-        } catch (error) {
-            console.error('Update error:', error);
-            toast.error('Failed to save changes');
-        }
-    };
-
-    const handleAiEdit = async () => {
-        if (!proposal || !editingSectionId || !aiEditInstruction) return;
-
-        setIsAiEditing(true);
-        try {
-            const response = await fetch(`${serverUrl}/proposals/${proposal.id}/ai-edit`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify({
-                    instruction: `For section '${editingSectionId}': ${aiEditInstruction}`,
-                }),
-            });
-
-            if (!response.ok) throw new Error('AI edit failed');
-
-            const data = await response.json();
-            if (data.proposal) {
-                setProposal(data.proposal);
-                setEditingContent(data.proposal[editingSectionId]); // Update manual edit view too
-                toast.success('AI updated the section!');
-                // Optional: Switch to manual tab to review?
-            }
-        } catch (error) {
-            console.error('AI Edit error:', error);
-            toast.error('Failed to perform AI edit');
-        } finally {
-            setIsAiEditing(false);
-        }
-    };
-
-    const handleUpdateBudget = async (newBudget: any[]) => {
-        if (!proposal) return;
-
-        const updatedProposal = {
-            ...proposal,
-            budget: newBudget
-        };
-
-        setProposal(updatedProposal);
-
-        try {
-            const response = await fetch(`${serverUrl}/proposals/${proposal.id}`, {
-                method: 'PUT',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Authorization': `Bearer ${publicAnonKey}`,
-                },
-                body: JSON.stringify(updatedProposal),
-            });
-
-            if (!response.ok) throw new Error('Failed to update budget');
-        } catch (error) {
-            console.error('Update error:', error);
-            toast.error('Failed to save budget changes');
-            // Revert on error would be complex here due to rapid updates, 
-            // relying on next load or user correction for now
-        }
-    };
-
-    const handleAddBudgetItem = () => {
-        if (!proposal) return;
-        const newBudget = [...(proposal.budget || []), { item: 'New Item', description: 'Description', cost: 0 }];
-        handleUpdateBudget(newBudget);
-    };
-
-    const handleRemoveBudgetItem = (index: number) => {
-        if (!proposal || !proposal.budget) return;
-        const newBudget = [...proposal.budget];
-        newBudget.splice(index, 1);
-        handleUpdateBudget(newBudget);
-    };
-
-    const handleMoveBudgetItem = (index: number, direction: 'up' | 'down') => {
-        if (!proposal || !proposal.budget) return;
-        const newBudget = [...proposal.budget];
-        const newIndex = direction === 'up' ? index - 1 : index + 1;
-        if (newIndex < 0 || newIndex >= newBudget.length) return;
-
-        [newBudget[index], newBudget[newIndex]] = [newBudget[newIndex], newBudget[index]];
-        handleUpdateBudget(newBudget);
-    };
-
-    const handleAddSubItem = (itemIndex: number) => {
-        if (!proposal || !proposal.budget) return;
-        const newBudget = [...proposal.budget];
-
-        if (!newBudget[itemIndex].breakdown) {
-            newBudget[itemIndex].breakdown = [];
-        }
-
-        const newSubIndex = newBudget[itemIndex].breakdown!.length;
-        newBudget[itemIndex].breakdown!.push({
-            subItem: 'New Sub-item',
-            quantity: 1,
-            unitCost: 0,
-            total: 0
-        });
-
-        // Recalculate main item cost
-        const subItemsTotal = newBudget[itemIndex].breakdown!.reduce((sum, sub) => sum + sub.total, 0);
-        newBudget[itemIndex].cost = subItemsTotal;
-
-        handleUpdateBudget(newBudget);
-
-        // Highlight the newly added sub-item
-        const highlightKey = `${itemIndex}-${newSubIndex}`;
-        setNewlyAddedSubItem(highlightKey);
-        setTimeout(() => setNewlyAddedSubItem(null), 2000);
-    };
-
-    const handleRemoveSubItem = (itemIndex: number, subIndex: number) => {
-        if (!proposal || !proposal.budget) return;
-        const newBudget = [...proposal.budget];
-
-        if (newBudget[itemIndex].breakdown) {
-            newBudget[itemIndex].breakdown!.splice(subIndex, 1);
-
-            // Recalculate main item cost
-            const subItemsTotal = newBudget[itemIndex].breakdown!.reduce((sum, sub) => sum + sub.total, 0);
-            newBudget[itemIndex].cost = subItemsTotal;
-
-            handleUpdateBudget(newBudget);
-        }
-    };
-
-    const handleSubItemChange = (itemIndex: number, subIndex: number, field: string, value: any) => {
-        if (!proposal || !proposal.budget) return;
-        const newBudget = [...proposal.budget];
-
-        if (newBudget[itemIndex].breakdown) {
-            const subItem = { ...newBudget[itemIndex].breakdown![subIndex], [field]: value };
-
-            // Auto-calculate total if quantity or unitCost changes
-            if (field === 'quantity' || field === 'unitCost') {
-                const qty = field === 'quantity' ? value : subItem.quantity;
-                const cost = field === 'unitCost' ? value : subItem.unitCost;
-                subItem.total = qty * cost;
-            }
-
-            newBudget[itemIndex].breakdown![subIndex] = subItem;
-
-            // Recalculate main item cost
-            const subItemsTotal = newBudget[itemIndex].breakdown!.reduce((sum, sub) => sum + sub.total, 0);
-            newBudget[itemIndex].cost = subItemsTotal;
-
-            handleUpdateBudget(newBudget);
-        }
-    };
-
-    const handleBudgetChange = (index: number, field: string, value: string | number) => {
-        if (!proposal || !proposal.budget) return;
-        const newBudget = [...proposal.budget];
-        newBudget[index] = {
-            ...newBudget[index],
-            [field]: value
-        };
-        handleUpdateBudget(newBudget);
-    };
-
     if (loading) {
         return (
-            <div className="flex items-center justify-center h-[60vh]">
-                <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-primary"></div>
+            <div className="flex flex-col items-center justify-center min-h-[60vh] space-y-4">
+                <div className="relative">
+                    <div className="h-16 w-16 rounded-full border-4 border-primary/20 animate-pulse"></div>
+                    <Loader2 className="h-8 w-8 animate-spin text-primary absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2" />
+                </div>
+                <p className="text-muted-foreground animate-pulse">Loading Premium Proposal View...</p>
             </div>
         );
     }
 
-    if (!proposal) {
-        return (
-            <div className="flex flex-col items-center justify-center h-[60vh] space-y-4">
-                <p className="text-muted-foreground">Proposal not found</p>
-                <Button onClick={onBack}>Go Back</Button>
-            </div>
-        );
-    }
+    if (!proposal) return <div>Proposal not found</div>;
 
-    // Build sections array including custom sections and aligning with funding scheme template
-    let baseSections: { id: string; title: string; content: string | undefined; type?: string; level?: number }[] = [];
-    const fundingScheme = proposal.fundingScheme || (proposal as any).funding_scheme;
-    const dynamicSections = proposal.dynamicSections || (proposal as any).dynamic_sections || {};
-    if (fundingScheme?.template_json?.sections) {
-        const renderedWPIndices = new Set<number>();
-
-        // Function to recursively flatten template sections with level and description
-        const processTemplateSections = (templateSections: any[], level = 1): any[] => {
-            let flattened: any[] = [];
-            [...templateSections].sort((a, b) => (a.order || 0) - (b.order || 0)).forEach(ts => {
-                const lowerKey = ts.key?.toLowerCase() || "";
-                const lowerLabel = ts.label?.toLowerCase() || "";
-                const isWP = lowerKey.includes('work_package') || lowerLabel.includes('work package');
-
-                if (isWP) {
-                    const match = lowerKey.match(/work_package_?(\d+)/i) ||
-                        lowerLabel.match(/work\s*package\D*(\d+)/i) ||
-                        lowerLabel.match(/w\.?p\.?\D*(\d+)/i);
-                    if (match) {
-                        renderedWPIndices.add(parseInt(match[1]) - 1);
-                    }
-                }
-
-                flattened.push({
-                    id: ts.key,
-                    title: ts.label,
-                    content: dynamicSections[ts.key],
-                    description: ts.description, // Verbatim questions
-                    type: ts.type,
-                    level: level
-                });
-                if (ts.subsections && ts.subsections.length > 0) {
-                    flattened = [...flattened, ...processTemplateSections(ts.subsections, level + 1)];
-                }
-            });
-            return flattened;
-        };
-
-        baseSections = processTemplateSections(fundingScheme.template_json.sections);
-
-        // Add missing Work Packages if they exist in structured data but weren't in template
-        if (proposal.workPackages && proposal.workPackages.length > 0) {
-            proposal.workPackages.forEach((wp, idx) => {
-                if (!renderedWPIndices.has(idx)) {
-                    baseSections.push({
-                        id: `work_package_${idx + 1}`,
-                        title: wp.name || `Work Package ${idx + 1}`,
-                        content: wp.description,
-                        type: 'work_package',
-                        level: 2
-                    });
-                }
-            });
-        }
-    } else if (Object.keys(dynamicSections).length > 0) {
-        baseSections = Object.entries(dynamicSections).map(([key, content], idx) => ({
-            id: key,
-            title: `${idx + 1}. ${key.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())}`,
-            content: content as string
-        }));
-    } else {
-        baseSections = [
-            { id: 'introduction', title: '1. Introduction', content: proposal.introduction },
-            { id: 'relevance', title: '2. Relevance', content: proposal.relevance },
-            { id: 'objectives', title: '3. Objectives', content: proposal.objectives },
-            { id: 'methodology', title: '4. Methodology', content: proposal.methodology || proposal.methods },
-            { id: 'workPlan', title: '5. Work Plan', content: proposal.workPlan },
-            { id: 'expectedResults', title: '6. Expected Results', content: proposal.expectedResults },
-            { id: 'impact', title: '7. Impact', content: proposal.impact },
-            { id: 'innovation', title: '8. Innovation', content: proposal.innovation },
-            { id: 'sustainability', title: '9. Sustainability', content: proposal.sustainability },
-            { id: 'consortium', title: '10. Consortium', content: proposal.consortium },
-            { id: 'riskManagement', title: '11. Risk Management', content: proposal.riskManagement },
-            { id: 'dissemination', title: '12. Dissemination & Communication', content: proposal.dissemination },
-        ];
-    }
-
-    // Add custom sections if they exist
-    const customSections = (proposal.customSections || []).map((section: any, idx: number) => ({
-        id: section.id || `custom-${idx}`,
-        title: `${baseSections.length + idx + 1}. ${section.title}`,
-        content: section.content,
-        isCustom: true
-    }));
-
-    const sections = [...baseSections, ...customSections];
+    const totalBudget = (proposal.budget || []).reduce((sum: number, item: any) => sum + (item.cost || 0), 0);
 
     return (
-        <div className="space-y-6 pb-10 animate-in fade-in duration-500">
-            {/* Header */}
-            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 border-b border-border/40 pb-6">
-                <div className="space-y-1">
-                    <div className="flex items-center gap-2 text-muted-foreground mb-2">
-                        <Button variant="ghost" size="sm" onClick={onBack} className="h-8 px-2 -ml-2 hover:text-primary">
-                            <ArrowLeft className="h-4 w-4 mr-1" />
-                            Back
-                        </Button>
-                        <span className="text-border">/</span>
-                        <span className="text-xs uppercase tracking-wider">Proposal Viewer</span>
+        <div className="max-w-7xl mx-auto space-y-8 pb-20 px-4 pt-4">
+            {/* Header Section */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 bg-secondary/20 p-8 rounded-3xl border border-white/10 backdrop-blur-xl shadow-2xl">
+                <div className="space-y-2">
+                    <div className="flex items-center gap-2">
+                        <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 px-3 py-1 uppercase tracking-widest text-[10px] font-bold">
+                            Official Proposal
+                        </Badge>
+                        <span className="text-muted-foreground/40 font-mono text-xs">ID: {proposal.id.split('-').pop()}</span>
                     </div>
-                    <h1 className="text-3xl font-bold text-foreground tracking-tight">{proposal.title}</h1>
+                    <h1 className="text-4xl font-extrabold tracking-tight bg-gradient-to-r from-white to-white/60 bg-clip-text text-transparent italic">
+                        {proposal.title}
+                    </h1>
                     <div className="flex items-center gap-4 text-sm text-muted-foreground">
-                        <span className="flex items-center gap-1">
-                            <Calendar className="h-3.5 w-3.5" />
-                            {new Date(proposal.generatedAt || '').toLocaleDateString()}
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <LayoutGrid className="h-3.5 w-3.5" />
-                            {proposal.workPackages?.length || 0} Work Packages
-                        </span>
-                        <span className="flex items-center gap-1">
-                            <Users className="h-3.5 w-3.5" />
-                            {proposal.partners?.length || 0} Partners
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                            <Layers className="h-4 w-4 text-blue-400" />
+                            <span>{proposal.workPackages?.length || 0} Work Packages</span>
+                        </div>
+                        <div className="h-1 w-1 rounded-full bg-white/10"></div>
+                        <div className="flex items-center gap-1.5">
+                            <Users className="h-4 w-4 text-green-400" />
+                            <span>{proposal.partners?.length || 0} Organizations</span>
+                        </div>
+                        <div className="h-1 w-1 rounded-full bg-white/10"></div>
+                        <div className="flex items-center gap-1.5 font-bold text-white/80">
+                            <DollarSign className="h-4 w-4 text-emerald-400" />
+                            <span>€{totalBudget.toLocaleString()}</span>
+                        </div>
                     </div>
                 </div>
-                <div className="flex gap-2">
-                    <Button variant="ghost" onClick={() => setShowPrompt(true)} title="View Generation Prompt">
-                        <Terminal className="h-5 w-5" />
+                <div className="flex flex-wrap gap-3">
+                    <Button variant="ghost" onClick={onBack} className="text-muted-foreground hover:text-white border border-white/5 hover:bg-white/5 px-6 rounded-2xl">
+                        <ArrowLeft className="h-4 w-4 mr-2" />
+                        Back
                     </Button>
-                    {/* Settings Button */}
-                    <Button variant="ghost" onClick={() => setIsSettingsOpen(true)}>
-                        <Settings className="h-5 w-5" />
-                    </Button>
-                    <Button
-                        onClick={handleExportToDocx}
-                        disabled={isExporting || !proposal}
-                        className="bg-primary hover:bg-primary/90 text-primary-foreground shadow-[0_0_15px_rgba(122,162,247,0.3)] disabled:opacity-70"
-                    >
-                        {isExporting ? (
-                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                        ) : (
-                            <Download className="h-4 w-4 mr-2" />
-                        )}
+                    <Button className="bg-primary hover:bg-primary/90 text-white shadow-lg shadow-primary/20 px-8 rounded-2xl font-bold flex gap-2">
+                        <Download className="h-4 w-4" />
                         Export DOCX
                     </Button>
                 </div>
             </div>
 
-            {/* Main Content */}
-            <Tabs value={activeTab} className="space-y-6" onValueChange={setActiveTab}>
-                <TabsList className="bg-card/50 border border-border/40 p-1">
-                    <TabsTrigger value="narrative" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <FileText className="h-4 w-4 mr-2" />
-                        Narrative
-                    </TabsTrigger>
-                    <TabsTrigger value="structured" className="data-[state=active]:bg-primary/20 data-[state=active]:text-primary">
-                        <LayoutGrid className="h-4 w-4 mr-2" />
-                        Structured Data
-                    </TabsTrigger>
-                </TabsList>
+            {/* Main Tabs */}
+            <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full">
+                <div className="flex items-center justify-center mb-8">
+                    <TabsList className="bg-secondary/40 p-1 rounded-2xl border border-white/5 backdrop-blur-lg">
+                        <TabsTrigger value="structured" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold">
+                            <Layout className="h-4 w-4" />
+                            Project Design
+                        </TabsTrigger>
+                        <TabsTrigger value="narrative" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold">
+                            <FileText className="h-4 w-4" />
+                            Narrative Structure
+                        </TabsTrigger>
+                        <TabsTrigger value="settings" className="rounded-xl px-8 py-2.5 data-[state=active]:bg-primary data-[state=active]:shadow-lg flex gap-2 font-bold">
+                            <Settings className="h-4 w-4" />
+                            Configuration
+                        </TabsTrigger>
+                    </TabsList>
+                </div>
 
-                {/* Narrative Tab */}
-                <TabsContent value="narrative" className="space-y-8">
-                    {/* Executive Summary */}
-                    <Card className="bg-card/40 border-primary/20 backdrop-blur-sm overflow-hidden">
-                        <div className="absolute top-0 left-0 w-1 h-full bg-primary"></div>
-                        <CardHeader>
-                            <CardTitle className="text-xl text-primary flex items-center gap-2">
-                                <SparklesIcon className="h-5 w-5" />
-                                Executive Summary
-                            </CardTitle>
-                        </CardHeader>
-                        <CardContent>
-                            <div className="prose prose-invert prose-p:text-muted-foreground prose-headings:text-foreground max-w-none">
-                                <div dangerouslySetInnerHTML={{ __html: proposal.summary || '' }} />
-                            </div>
-                        </CardContent>
-                    </Card>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-4 gap-8">
-                        {/* Table of Contents (Sidebar) - Folder Style */}
-                        <div className="hidden lg:block col-span-1 space-y-4">
-                            <div className="sticky top-6 space-y-2">
-                                <div className="flex items-center justify-between px-2 mb-3">
-                                    <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider">Document Structure</h3>
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-6 w-6 rounded-md bg-primary/10 hover:bg-primary/20 text-primary"
-                                        title="Add New Section"
-                                        onClick={() => setIsAiSectionDialogOpen(true)}
-                                    >
-                                        <span className="text-white text-sm font-bold">+</span>
-                                    </Button>
-                                </div>
-                                <ScrollArea className="h-[calc(100vh-300px)] hide-scrollbar">
-                                    <div className="space-y-0.5 pr-4 hide-scrollbar">
-                                        {/* Executive Summary - Always visible */}
-                                        <div className="group">
-                                            <a
-                                                href="#executive-summary"
-                                                className="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors hover:bg-secondary/50 text-muted-foreground hover:text-foreground"
-                                            >
-                                                <FileText className="h-3.5 w-3.5 text-primary/70" />
-                                                <span>Executive Summary</span>
-                                            </a>
-                                        </div>
-
-                                        {/* Main Sections Folder */}
-                                        <div className="mt-2">
-                                            <div className="flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-md hover:bg-secondary/30 cursor-pointer group">
-                                                <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform" />
-                                                <Folder className="h-3.5 w-3.5 text-yellow-500/80" />
-                                                <span className="text-muted-foreground font-medium flex-1">Narrative Sections</span>
-                                                <Button
-                                                    variant="ghost"
-                                                    size="icon"
-                                                    className="h-5 w-5 rounded opacity-0 group-hover:opacity-100 transition-opacity bg-primary/10 hover:bg-primary/20"
-                                                    title="Add Section"
-                                                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                                                >
-                                                    <span className="text-primary text-xs font-bold">+</span>
-                                                </Button>
-                                            </div>
-                                            <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border/40 pl-2">
-                                                {sections.map((section: any) => (
-                                                    (section.content || section.description) && (
-                                                        <a
-                                                            key={section.id}
-                                                            href={`#${section.id}`}
-                                                            className="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors hover:bg-secondary/50 text-muted-foreground hover:text-foreground group"
-                                                            style={{ paddingLeft: section.level ? `${(section.level - 1) * 12 + 8}px` : '8px' }}
-                                                        >
-                                                            <div className="h-3.5 w-3.5 flex items-center justify-center">
-                                                                <div className={`h-1.5 w-1.5 rounded-full ${section.level > 1 ? 'bg-primary/20' : 'bg-primary/50'} group-hover:bg-primary`}></div>
-                                                            </div>
-                                                            <span className={`truncate ${section.level === 1 ? 'font-medium' : 'text-xs'}`}>
-                                                                {section.title
-                                                                    .replace(/^undefined\s*/gi, '')
-                                                                    .replace(/\s*-\s*null\b/gi, '')
-                                                                    .replace(/_/g, ' ')
-                                                                    .replace(/\b\w/g, l => l.toUpperCase())}
-                                                            </span>
-                                                        </a>
-                                                    )
-                                                ))}
-                                            </div>
-                                        </div>
-
-                                        {/* Work Packages Folder */}
-                                        {(proposal.workPackages && proposal.workPackages.length > 0) && (
-                                            <div className="mt-2 text-primary">
-                                                <div
-                                                    className="flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-md hover:bg-secondary/30 cursor-pointer group"
-                                                    onClick={() => {
-                                                        setActiveTab('structured');
-                                                        setTimeout(() => document.getElementById('work-packages')?.scrollIntoView({ behavior: 'smooth' }), 100);
-                                                    }}
-                                                >
-                                                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform" />
-                                                    <Layers className="h-3.5 w-3.5 text-blue-500/80" />
-                                                    <span className="text-muted-foreground font-medium flex-1">Work Packages</span>
-                                                    <span className="text-xs text-muted-foreground/60">{proposal.workPackages.length}</span>
-                                                </div>
-                                                <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border/40 pl-2">
-                                                    {proposal.workPackages.map((wp, idx) => {
-                                                        const wpNumMatch = wp.name.match(/(\d+)/);
-                                                        const targetId = wpNumMatch ? `work_package_${wpNumMatch[1]}` : 'work-packages';
-
-                                                        return (
-                                                            <div
-                                                                key={idx}
-                                                                onClick={() => {
-                                                                    if (activeTab === 'narrative') {
-                                                                        const section = document.getElementById(targetId);
-                                                                        if (section) {
-                                                                            section.scrollIntoView({ behavior: 'smooth' });
-                                                                        } else {
-                                                                            setActiveTab('structured');
-                                                                            setTimeout(() => document.getElementById('work-packages')?.scrollIntoView({ behavior: 'smooth' }), 100);
-                                                                        }
-                                                                    } else {
-                                                                        document.getElementById('work-packages')?.scrollIntoView({ behavior: 'smooth' });
-                                                                    }
-                                                                }}
-                                                                className="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors hover:bg-secondary/50 text-muted-foreground hover:text-foreground group cursor-pointer"
-                                                            >
-                                                                <div className="h-1 w-1 rounded-full bg-blue-500/40"></div>
-                                                                <span className="text-[10px] truncate">{wp.name || `WP ${idx + 1}`}</span>
-                                                            </div>
-                                                        );
-                                                    })}
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Partners Folder */}
-                                        {proposal.partners && proposal.partners.length > 0 && (
-                                            <div className="mt-2">
-                                                <div
-                                                    className="flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-md hover:bg-secondary/30 cursor-pointer group"
-                                                    onClick={() => {
-                                                        setActiveTab('structured');
-                                                        setTimeout(() => document.getElementById('partners')?.scrollIntoView({ behavior: 'smooth' }), 100);
-                                                    }}
-                                                >
-                                                    <ChevronDown className="h-3.5 w-3.5 text-muted-foreground transition-transform" />
-                                                    <Folder className="h-3.5 w-3.5 text-green-500/80" />
-                                                    <span className="text-muted-foreground font-medium flex-1">Consortium</span>
-                                                    <span className="text-xs text-muted-foreground/60">{proposal.partners.length}</span>
-                                                </div>
-                                                <div className="ml-4 mt-0.5 space-y-0.5 border-l border-border/40 pl-2">
-                                                    <div
-                                                        onClick={() => {
-                                                            setActiveTab('structured');
-                                                            setTimeout(() => document.getElementById('partners')?.scrollIntoView({ behavior: 'smooth' }), 100);
-                                                        }}
-                                                        className="flex items-center gap-2 px-2 py-1.5 text-sm rounded-md transition-colors hover:bg-secondary/50 text-muted-foreground hover:text-foreground cursor-pointer"
-                                                    >
-                                                        <Users className="h-3.5 w-3.5 text-green-500/60" />
-                                                        <span className="text-xs">View All Partners</span>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        )}
-
-                                        {/* Budget Folder */}
-                                        <div className="mt-2">
-                                            <div
-                                                onClick={() => {
-                                                    setActiveTab('structured');
-                                                    setTimeout(() => document.getElementById('budget')?.scrollIntoView({ behavior: 'smooth' }), 100);
-                                                }}
-                                                className="flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-md hover:bg-secondary/30 cursor-pointer group"
-                                            >
-                                                <DollarSign className="h-3.5 w-3.5 text-emerald-500/80" />
-                                                <span className="text-muted-foreground font-medium">Budget</span>
-                                            </div>
-                                        </div>
-
-                                        {/* Risks Folder */}
-                                        <div className="mt-2">
-                                            <div
-                                                onClick={() => {
-                                                    setActiveTab('structured');
-                                                    setTimeout(() => document.getElementById('risks')?.scrollIntoView({ behavior: 'smooth' }), 100);
-                                                }}
-                                                className="flex items-center gap-1.5 px-2 py-1.5 text-sm rounded-md hover:bg-secondary/30 cursor-pointer group"
-                                            >
-                                                <AlertTriangle className="h-3.5 w-3.5 text-orange-500/80" />
-                                                <span className="text-muted-foreground font-medium">Risk Management</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </ScrollArea>
-                            </div>
-                        </div>
-
-                        {/* Content Sections */}
-                        <div className="col-span-1 lg:col-span-3 space-y-8">
-                            {sections.map((section) => {
-                                if (!section.content) return null;
-
-                                const isApplicantSection =
-                                    section.title.toLowerCase().includes('applicant organisation') ||
-                                    section.id === 'applicant_organisation' ||
-                                    section.id === 'coordinator_organisation' ||
-                                    section.id === 'applicant';
-
-                                const isPartnerSection =
-                                    (section.title.toLowerCase().includes('partner organisation') ||
-                                        section.title.toLowerCase().includes('participating organisation') ||
-                                        section.id === 'partner_organisations' ||
-                                        section.id === 'participating_organisations') && !isApplicantSection;
-
-                                const isConsortiumSection =
-                                    section.id === 'consortium' ||
-                                    section.title.toLowerCase() === 'consortium' ||
-                                    section.title.toLowerCase().includes('consortium members');
-
-                                const isWPSection =
-                                    section.title.toLowerCase().includes('work package') ||
-                                    section.title.toLowerCase().includes('workpackage') ||
-                                    section.title.toLowerCase().match(/^wp\d+/i) ||
-                                    section.id.toLowerCase().includes('work_package') ||
-                                    section.id.toLowerCase().includes('workpackage') ||
-                                    section.id === 'workPlan' ||
-                                    section.id === 'tasks';
-
-                                const isBudgetSection =
-                                    section.title.toLowerCase().includes('budget') ||
-                                    section.id.toLowerCase().includes('budget') ||
-                                    section.id === 'financial_overview';
-
-                                const isRiskSection =
-                                    section.title.toLowerCase().includes('risk') ||
-                                    section.id.toLowerCase().includes('risk') ||
-                                    section.id === 'riskManagement';
-
-                                return (
-                                    <div key={section.id} id={section.id} className="scroll-mt-24">
-                                        <Card className={`bg-card/30 border-border/40 hover:border-primary/20 transition-colors ${section.level > 1 ? 'ml-6 border-l-2' : ''}`}>
-                                            <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                                                <div className="space-y-1">
-                                                    <CardTitle className={`${section.level === 1 ? 'text-lg' : 'text-base uppercase tracking-wide text-primary/70'} font-semibold text-foreground/90`}>
-                                                        {section.title
-                                                            .replace(/^undefined\s*/gi, '')
-                                                            .replace(/\s*-\s*null\b/gi, '')
-                                                            .replace(/_/g, ' ')
-                                                            .replace(/\b\w/g, l => l.toUpperCase())}
-                                                    </CardTitle>
-                                                    {section.description && (
-                                                        <p className="text-[10px] text-muted-foreground italic max-w-2xl leading-relaxed">
-                                                            <span className="font-bold uppercase text-[9px] not-italic mr-1 text-primary/50">Instruction:</span>
-                                                            {section.description}
-                                                        </p>
-                                                    )}
-                                                </div>
-                                                {(!isPartnerSection && !isApplicantSection) && (
-                                                    <Button variant="ghost" size="sm" onClick={() => handleEditSection(section.id, section.title, section.content)}>
-                                                        <Edit className="h-4 w-4" />
-                                                    </Button>
-                                                )}
-                                                {(isPartnerSection || isApplicantSection) && (
-                                                    <Button variant="ghost" size="sm" onClick={() => setActiveTab('structured')}>
-                                                        <Settings className="h-4 w-4" />
-                                                    </Button>
-                                                )}
-                                            </CardHeader>
-                                            <CardContent>
-                                                {isApplicantSection ? (
-                                                    <DynamicPartnerSection partners={(proposal?.partners || []).filter(p => p.isCoordinator)} />
-                                                ) : (isPartnerSection || isConsortiumSection) ? (
-                                                    <DynamicPartnerSection partners={(proposal?.partners || []).filter(p => isConsortiumSection ? true : !p.isCoordinator)} />
-                                                ) : isWPSection && proposal.workPackages && proposal.workPackages.length > 0 ? (
-                                                    <div className="space-y-6">
-                                                        {/* If there's specific narrative content, show it first */}
-                                                        {section.content && section.content.length > 50 && (
-                                                            <div className="prose prose-invert prose-sm max-w-none text-muted-foreground mb-4">
-                                                                <ResponsiveSectionContent content={section.content} />
-                                                            </div>
-                                                        )}
-                                                        {(() => {
-                                                            const match = section.id.match(/work_package_?(\d+)/i) ||
-                                                                section.title.match(/work\s*package\D*(\d+)/i) ||
-                                                                section.title.match(/W\.?P\.?\D*(\d+)/i);
-                                                            const wpIdx = match ? parseInt(match[1]) - 1 : undefined;
-                                                            return <DynamicWorkPackageSection
-                                                                workPackages={proposal.workPackages}
-                                                                limitToIndex={wpIdx}
-                                                                currency={settings.currency}
-                                                                sectionTitle={section.title}
-                                                            />;
-                                                        })()}
-                                                    </div>
-                                                ) : isBudgetSection && proposal.budget && proposal.budget.length > 0 ? (
-                                                    <div className="space-y-6">
-                                                        {section.content && section.content.length > 50 && (
-                                                            <div className="prose prose-invert prose-sm max-w-none text-muted-foreground mb-4">
-                                                                <ResponsiveSectionContent content={section.content} />
-                                                            </div>
-                                                        )}
-                                                        <DynamicBudgetSection budget={proposal.budget} currency={settings.currency} />
-                                                    </div>
-                                                ) : isRiskSection && proposal.risks && proposal.risks.length > 0 ? (
-                                                    <div className="space-y-6">
-                                                        {section.content && section.content.length > 50 && (
-                                                            <div className="prose prose-invert prose-sm max-w-none text-muted-foreground mb-4">
-                                                                <ResponsiveSectionContent content={section.content} />
-                                                            </div>
-                                                        )}
-                                                        <DynamicRiskSection risks={proposal.risks} />
-                                                    </div>
-                                                ) : (
-                                                    <div className="overflow-x-auto pb-4">
-                                                        <div className="prose prose-invert prose-sm max-w-none prose-p:text-muted-foreground/90 prose-headings:text-foreground prose-strong:text-primary/90 prose-li:text-muted-foreground/90 [&_table]:min-w-[1000px] [&_table]:border-collapse [&_table]:text-xs [&_th]:px-3 [&_th]:py-2 [&_td]:px-3 [&_td]:py-3 [&_td]:align-top [&_tr]:border-b [&_tr]:border-border/50">
-                                                            {section.content ? (
-                                                                <ResponsiveSectionContent content={section.content} />
-                                                            ) : (
-                                                                <div className="py-8 text-center border-2 border-dashed border-border/20 rounded-xl bg-secondary/10">
-                                                                    <p className="text-sm text-muted-foreground italic">No content generated for this section.</p>
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="mt-4 text-primary"
-                                                                        onClick={() => handleEditSection(section.id, section.title, '')}
-                                                                    >
-                                                                        <Plus className="h-4 w-4 mr-2" />
-                                                                        Generate with AI
-                                                                    </Button>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                )}
-                                            </CardContent>
-                                        </Card>
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                </TabsContent>
-
-                {/* Structured Data Tab */}
-                <TabsContent value="structured" className="space-y-8">
-
-                    {/* Partners Grid */}
-                    <section id="partners">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-xl font-semibold flex items-center gap-2">
-                                <Users className="h-5 w-5 text-primary" />
-                                Consortium Partners
+                {/* Structured View */}
+                <TabsContent value="structured" className="space-y-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-2xl font-bold flex items-center gap-2">
+                                <Layers className="h-6 w-6 text-blue-500" />
+                                Work Packages
                             </h3>
-                            <Button size="sm" onClick={() => setIsPartnerModalOpen(true)}>
-                                <Plus className="h-4 w-4 mr-2" />
-                                Add Partner
-                            </Button>
+                            <Badge variant="secondary" className="px-4 py-1.5 rounded-full text-blue-400 border border-blue-500/20 bg-blue-500/5">
+                                {proposal.workPackages?.length || 0} Total Packages
+                            </Badge>
                         </div>
-                        <div className="flex flex-col gap-3">
-                            {proposal.partners?.map((partner, idx) => (
-                                <div key={idx} className="flex items-center gap-4 p-4 border border-border/40 rounded-xl hover:border-primary/50 transition-all group bg-card/20 backdrop-blur-sm shadow-sm">
-                                    {/* Logo Column */}
-                                    <div className="shrink-0 w-12 h-12 flex items-center justify-center bg-white/5 rounded-lg border border-white/10 overflow-hidden">
-                                        {partner.logoUrl ? (
-                                            <img
-                                                src={partner.logoUrl}
-                                                alt={partner.name}
-                                                className="w-full h-full object-contain p-1"
-                                            />
-                                        ) : (
-                                            <Building2 className="w-6 h-6 text-muted-foreground/30" />
-                                        )}
-                                    </div>
 
-                                    {/* Content Column */}
-                                    <div className="flex-1 min-w-0">
-                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 mb-1">
-                                            <h3 className="font-bold text-base group-hover:text-primary transition-colors truncate">
-                                                {partner.name}
-                                            </h3>
-                                            <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-4 uppercase tracking-wider bg-primary/10 text-primary border-none">
-                                                {partner.role}
-                                            </Badge>
-                                        </div>
-
-                                        <div className="flex items-center gap-3 text-xs text-muted-foreground">
-                                            {partner.country && (
-                                                <div className="flex items-center">
-                                                    <Globe className="w-3 h-3 mr-1 text-primary/60" />
-                                                    {partner.country}
-                                                </div>
-                                            )}
-                                            {(partner.contactPersonEmail || partner.contactEmail) && (
-                                                <div className="flex items-center truncate max-w-[200px]">
-                                                    <Mail className="w-3 h-3 mr-1 text-primary/60" />
-                                                    {partner.contactPersonEmail || partner.contactEmail}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {/* Actions */}
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 rounded-lg bg-red-500/10 hover:bg-red-500/20 text-white border border-red-500/20 opacity-0 group-hover:opacity-100 transition-opacity shrink-0"
-                                        onClick={(e) => {
-                                            e.stopPropagation();
-                                            handleRemovePartnerClick(idx, partner.name);
-                                        }}
+                        <div className="grid grid-cols-1 gap-4">
+                            {(proposal.workPackages || []).map((wp: any, idx: number) => (
+                                <Card key={idx} className={`bg-secondary/10 border-white/5 hover:border-primary/20 transition-all duration-300 overflow-hidden rounded-3xl group ${expandedWp === idx ? 'ring-1 ring-primary/30 shadow-2xl shadow-primary/5' : ''}`}>
+                                    <div
+                                        className="p-6 cursor-pointer flex items-center justify-between"
+                                        onClick={() => setExpandedWp(expandedWp === idx ? null : idx)}
                                     >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            ))}
-                        </div>
-                    </section>
-
-                    <PartnerSelectionModal
-                        isOpen={isPartnerModalOpen}
-                        onClose={() => setIsPartnerModalOpen(false)}
-                        onConfirm={handleAddPartners}
-                        proposalContext={proposal.summary || ''}
-                    />
-
-                    {/* Work Packages */}
-                    <section id="work-packages">
-                        <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                            <Layers className="h-5 w-5 text-primary" />
-                            Work Packages
-                        </h3>
-                        <DynamicWorkPackageSection workPackages={proposal.workPackages} />
-                    </section>
-
-                    {/* Budget */}
-                    <section id="budget">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-xl font-semibold flex items-center gap-2">
-                                <DollarSign className="h-5 w-5 text-primary" />
-                                Budget Breakdown
-                            </h3>
-                            <div className="flex items-center gap-2">
-                                <span className="text-sm text-muted-foreground">Limit:</span>
-                                <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">
-                                        {getCurrencySymbol(settings.currency)}
-                                    </span>
-                                    <Input
-                                        type="number"
-                                        value={budgetLimit}
-                                        onChange={(e) => setBudgetLimit(parseFloat(e.target.value) || 0)}
-                                        className="w-32 h-8 bg-card/50 pl-7"
-                                        placeholder="Limit"
-                                    />
-                                </div>
-                            </div>
-                        </div>
-
-                        {proposal.partnerBudgetSummary && (
-                            <div className="mb-8">
-                                <PartnerSummarySection summary={proposal.partnerBudgetSummary} currency={settings.currency} />
-                            </div>
-                        )}
-                        <Card className="bg-card/30 border-border/40 overflow-hidden">
-                            <div className="overflow-x-auto">
-                                <table className="w-full text-sm">
-                                    <thead className="bg-secondary/50">
-                                        <tr>
-                                            <th className="w-[8%]"></th>
-                                            <th className="text-left py-3 px-4 font-medium text-muted-foreground w-[27%]">Item</th>
-                                            <th className="text-left py-3 px-4 font-medium text-muted-foreground w-[40%]">Description</th>
-                                            <th className="text-right py-3 px-4 font-medium text-muted-foreground w-[15%]">Cost</th>
-                                            <th className="w-[10%]"></th>
-                                        </tr>
-                                    </thead>
-                                    <tbody className="divide-y divide-border/20">
-                                        {proposal.budget?.map((item, idx) => (
-                                            <React.Fragment key={idx}>
-                                                {/* Main Item Row */}
-                                                <tr className="hover:bg-white/5 transition-colors group bg-card/20">
-                                                    <td className="py-2 px-2">
-                                                        <div className="flex flex-col gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                disabled={idx === 0}
-                                                                className="h-5 w-5 hover:bg-primary/20"
-                                                                onClick={() => handleMoveBudgetItem(idx, 'up')}
-                                                            >
-                                                                <ChevronUp className="h-3 w-3" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                disabled={idx === (proposal.budget?.length || 0) - 1}
-                                                                className="h-5 w-5 hover:bg-primary/20"
-                                                                onClick={() => handleMoveBudgetItem(idx, 'down')}
-                                                            >
-                                                                <ChevronDown className="h-3 w-3" />
-                                                            </Button>
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-2 px-4">
-                                                        <Input
-                                                            value={item.item}
-                                                            onChange={(e) => handleBudgetChange(idx, 'item', e.target.value)}
-                                                            className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-8 font-medium"
-                                                            placeholder="Main Item Name"
-                                                        />
-                                                    </td>
-                                                    <td className="py-2 px-4">
-                                                        <Input
-                                                            value={item.description}
-                                                            onChange={(e) => handleBudgetChange(idx, 'description', e.target.value)}
-                                                            className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-8"
-                                                            placeholder="Description"
-                                                        />
-                                                    </td>
-                                                    <td className="py-2 px-4">
-                                                        <div className="flex items-center justify-end h-8 px-3 font-mono font-medium">
-                                                            {formatCurrency(item.cost)}
-                                                        </div>
-                                                    </td>
-                                                    <td className="py-2 px-4 text-right">
-                                                        <div className="flex items-center justify-end gap-2">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-7 w-7 rounded-md bg-blue-600 hover:bg-blue-700 text-white flex items-center justify-center shadow-sm"
-                                                                onClick={() => handleAddSubItem(idx)}
-                                                                title="Add Sub-item"
-                                                            >
-                                                                <Plus className="h-4 w-4" />
-                                                            </Button>
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="h-7 w-7 rounded-md bg-red-500/10 hover:bg-red-500 hover:text-white text-red-500 border border-red-500/20 transition-all"
-                                                                onClick={() => handleRemoveBudgetItem(idx)}
-                                                                title="Remove Item"
-                                                            >
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </Button>
-                                                        </div>
-                                                    </td>
-                                                </tr>
-
-                                                {/* Sub-items */}
-                                                {item.breakdown?.map((sub, subIdx) => {
-                                                    const isNewlyAdded = newlyAddedSubItem === `${idx}-${subIdx}`;
-                                                    return (
-                                                        <tr key={`${idx}-${subIdx}`} className={`hover:bg-white/5 transition-all duration-500 group ${isNewlyAdded ? 'bg-green-500/20 animate-pulse' : ''
-                                                            }`}>
-                                                            <td className="py-1 px-4 pl-12 relative" colSpan={2}>
-                                                                <div className="absolute left-8 top-1/2 -translate-y-1/2 w-3 h-[1px] bg-border"></div>
-                                                                <Input
-                                                                    value={sub.subItem}
-                                                                    onChange={(e) => handleSubItemChange(idx, subIdx, 'subItem', e.target.value)}
-                                                                    className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-7 text-xs"
-                                                                    placeholder="Sub-item Name"
-                                                                />
-                                                            </td>
-                                                            <td className="py-1 px-4">
-                                                                <div className="grid grid-cols-2 gap-4">
-                                                                    <div className="relative">
-                                                                        <Input
-                                                                            type="number"
-                                                                            value={sub.quantity}
-                                                                            onChange={(e) => handleSubItemChange(idx, subIdx, 'quantity', parseFloat(e.target.value) || 0)}
-                                                                            className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-7 text-xs w-full text-center"
-                                                                            placeholder="Qty"
-                                                                        />
-                                                                    </div>
-                                                                    <div className="relative">
-                                                                        <span className="absolute left-2 top-1/2 -translate-y-1/2 text-muted-foreground text-[10px]">
-                                                                            {getCurrencySymbol(settings.currency)}
-                                                                        </span>
-                                                                        <Input
-                                                                            type="text"
-                                                                            value={sub.unitCost ? Math.round(sub.unitCost).toLocaleString('en-US') : ''}
-                                                                            onChange={(e) => {
-                                                                                const rawValue = e.target.value.replace(/[^0-9]/g, '');
-                                                                                handleSubItemChange(idx, subIdx, 'unitCost', parseInt(rawValue) || 0);
-                                                                            }}
-                                                                            className="bg-transparent border-transparent hover:border-border/40 focus:border-primary h-7 text-xs w-full pl-6 text-right"
-                                                                            placeholder="0"
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-1 px-4">
-                                                                <div className="flex items-center justify-end h-7 px-3 font-mono text-xs text-muted-foreground">
-                                                                    {formatCurrency(sub.total)}
-                                                                </div>
-                                                            </td>
-                                                            <td className="py-1 px-4 text-right">
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-6 w-6 rounded-lg hover:bg-red-500 hover:text-white text-red-500 transition-colors"
-                                                                    onClick={() => handleRemoveSubItem(idx, subIdx)}
-                                                                >
-                                                                    <Trash2 className="h-3 w-3" />
-                                                                </Button>
-                                                            </td>
-                                                        </tr>
-                                                    )
-                                                })}
-                                            </React.Fragment>
-                                        ))}
-                                    </tbody>
-                                    <tfoot className="bg-primary/5 font-bold border-t-2 border-primary/20">
-                                        <tr>
-                                            <td className="py-3 px-4 text-primary">Total</td>
-                                            <td className="py-3 px-4">
-                                                {budgetLimit > 0 && calculateTotal(proposal.budget || []) > budgetLimit && (
-                                                    <div className="flex items-center text-red-400 text-xs animate-pulse">
-                                                        <AlertTriangle className="h-4 w-4 mr-1" />
-                                                        Over Budget by {formatCurrency(calculateTotal(proposal.budget || []) - budgetLimit)}
-                                                    </div>
-                                                )}
-                                            </td>
-                                            <td className={`py-3 px-4 text-right font-mono ${budgetLimit > 0 && calculateTotal(proposal.budget || []) > budgetLimit
-                                                ? 'text-red-400'
-                                                : 'text-primary'
-                                                }`}>
-                                                {formatCurrency(calculateTotal(proposal.budget || []))}
-                                            </td>
-                                            <td></td>
-                                        </tr>
-                                    </tfoot>
-                                </table>
-                            </div>
-                            <div className="p-4 border-t border-border/40">
-                                <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={handleAddBudgetItem}
-                                    className="w-full border-dashed border-border hover:border-primary hover:bg-primary/5"
-                                >
-                                    <Plus className="h-4 w-4 mr-2" />
-                                    Add Main Budget Item
-                                </Button>
-                            </div>
-                        </Card>
-                    </section>
-
-                    {/* Risks */}
-                    <section id="risks">
-                        <h3 className="text-xl font-semibold mb-4 flex items-center gap-2">
-                            <AlertTriangle className="h-5 w-5 text-primary" />
-                            Risk Management
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                            {proposal.risks?.map((risk, idx) => (
-                                <Card key={idx} className="bg-card/30 border-border/40">
-                                    <CardHeader className="pb-2">
-                                        <div className="flex justify-between items-start gap-2">
-                                            <CardTitle className="text-base">{risk.risk}</CardTitle>
-                                            <Badge variant={risk.impact === 'High' ? 'destructive' : 'secondary'} className="shrink-0">
-                                                {risk.impact} Impact
-                                            </Badge>
+                                        <div className="flex items-center gap-6">
+                                            <div className="h-16 w-16 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center text-2xl font-black text-white shadow-lg group-hover:scale-110 transition-transform">
+                                                {idx + 1}
+                                            </div>
+                                            <div>
+                                                <h4 className="text-xl font-bold group-hover:text-primary transition-colors">{wp.name || `Work Package ${idx + 1}`}</h4>
+                                                <div className="flex items-center gap-3 mt-1 text-sm text-muted-foreground font-mono">
+                                                    <span>{wp.duration || 'All project duration'}</span>
+                                                    <div className="h-1 w-1 rounded-full bg-white/10"></div>
+                                                    <span>{wp.activities?.length || 0} Activities</span>
+                                                </div>
+                                            </div>
                                         </div>
-                                    </CardHeader>
-                                    <CardContent className="space-y-2 text-sm">
-                                        <div>
-                                            <span className="text-muted-foreground">Likelihood: </span>
-                                            <span className="font-medium">{risk.likelihood}</span>
-                                        </div>
-                                        <div className="bg-secondary/30 p-3 rounded-md mt-2">
-                                            <p className="text-xs font-semibold uppercase tracking-wider text-muted-foreground mb-1">Mitigation</p>
-                                            <p className="text-muted-foreground">{risk.mitigation}</p>
-                                        </div>
-                                    </CardContent>
+                                        <ChevronDown className={`h-6 w-6 text-muted-foreground transition-transform duration-500 ${expandedWp === idx ? 'rotate-180 text-primary' : ''}`} />
+                                    </div>
+
+                                    {expandedWp === idx && (
+                                        <CardContent className="px-8 pb-8 space-y-8 animate-in slide-in-from-top-4 duration-300">
+                                            <div className="h-px w-full bg-white/5"></div>
+                                            <div className="space-y-4">
+                                                <h5 className="text-sm font-bold uppercase tracking-widest text-primary/70">Overview & Objectives</h5>
+                                                <p className="text-muted-foreground leading-relaxed text-sm bg-black/20 p-4 rounded-2xl border border-white/5 italic">
+                                                    {wp.description}
+                                                </p>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                <h5 className="text-sm font-bold uppercase tracking-widest text-primary/70">Planned Activities</h5>
+                                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                                                    {(wp.activities || []).map((act: any, aIdx: number) => (
+                                                        <div key={aIdx} className="bg-white/5 rounded-2xl p-5 border border-white/5 space-y-3 hover:bg-white/10 transition-colors">
+                                                            <div className="flex items-center justify-between">
+                                                                <span className="text-xs font-mono text-primary/50">ACT {idx + 1}.{aIdx + 1}</span>
+                                                                <Badge className="bg-emerald-500/10 text-emerald-500 border-none text-[10px]">€{act.estimatedBudget?.toLocaleString()}</Badge>
+                                                            </div>
+                                                            <h6 className="font-bold text-white/90">{act.name}</h6>
+                                                            <p className="text-xs text-muted-foreground leading-relaxed">
+                                                                {act.description}
+                                                            </p>
+                                                            <div className="flex items-center gap-2 pt-2">
+                                                                <div className="h-5 w-5 rounded-full bg-blue-500/20 border border-blue-500/40 flex items-center justify-center text-[8px] font-bold text-blue-400">LD</div>
+                                                                <span className="text-[10px] text-muted-foreground font-bold">{act.leadPartner}</span>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            <div className="space-y-4">
+                                                <h5 className="text-sm font-bold uppercase tracking-widest text-primary/70">Deliverables</h5>
+                                                <div className="flex flex-wrap gap-2">
+                                                    {(wp.deliverables || []).map((del: string, dIdx: number) => (
+                                                        <Badge key={dIdx} variant="outline" className="bg-primary/5 text-primary border-primary/20 px-3 py-1 text-xs">
+                                                            <CheckCircle2 className="h-3 w-3 mr-2" />
+                                                            {del}
+                                                        </Badge>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        </CardContent>
+                                    )}
                                 </Card>
                             ))}
                         </div>
-                    </section>
+                    </div>
 
+                    <div className="space-y-6">
+                        <div className="flex items-center justify-between">
+                            <h3 className="text-2xl font-bold flex items-center gap-2">
+                                <DollarSign className="h-6 w-6 text-emerald-500" />
+                                Financial Statement
+                            </h3>
+                            <div className="text-right">
+                                <span className="text-xs text-muted-foreground block mb-1 font-mono">Total Budget Requested</span>
+                                <span className="text-3xl font-black text-emerald-400 tracking-tighter italic">€{totalBudget.toLocaleString()}</span>
+                            </div>
+                        </div>
+
+                        <Card className="bg-secondary/10 border-white/5 rounded-3xl overflow-hidden shadow-2xl">
+                            <table className="w-full text-left border-collapse">
+                                <thead className="bg-white/5">
+                                    <tr>
+                                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-muted-foreground">Budget Category</th>
+                                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-muted-foreground">Allocation Details</th>
+                                        <th className="px-6 py-4 text-xs font-bold uppercase tracking-widest text-muted-foreground text-right italic">Amount (€)</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {(proposal.budget || []).map((item: any, i: number) => (
+                                        <tr key={i} className="border-b border-white/5 hover:bg-white/5 transition-colors">
+                                            <td className="px-6 py-6 font-bold text-white/80">{item.item}</td>
+                                            <td className="px-6 py-6 text-sm text-muted-foreground max-w-md">
+                                                {item.description}
+                                                <div className="mt-2 flex flex-wrap gap-2">
+                                                    {item.breakdown?.map((sub: any, sI: number) => (
+                                                        <span key={sI} className="text-[10px] bg-black/30 px-2 py-0.5 rounded border border-white/5">
+                                                            {sub.subItem} ({sub.quantity})
+                                                        </span>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                            <td className="px-6 py-6 text-right font-mono font-bold text-emerald-400">€{item.cost.toLocaleString()}</td>
+                                        </tr>
+                                    ))}
+                                    <tr className="bg-emerald-500/10">
+                                        <td colSpan={2} className="px-6 py-6 text-right font-black uppercase text-xs tracking-[0.2em] text-emerald-500 italic">Consolidated Total</td>
+                                        <td className="px-6 py-6 text-right font-black text-2xl text-emerald-500 italic border-l border-emerald-500/20 tracking-tighter">€{totalBudget.toLocaleString()}</td>
+                                    </tr>
+                                </tbody>
+                            </table>
+                        </Card>
+                    </div>
+
+                    <div className="space-y-6">
+                        <h3 className="text-2xl font-bold flex items-center gap-2">
+                            <Users className="h-6 w-6 text-indigo-500" />
+                            Consortium Members
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                            {(proposal.partners || []).map((partner: any, pIdx: number) => (
+                                <Card key={pIdx} className="bg-secondary/10 border-white/5 rounded-3xl p-6 hover:bg-secondary/20 transition-all border-l-4 border-l-indigo-500/50 shadow-xl">
+                                    <div className="space-y-4">
+                                        <div className="flex items-start justify-between">
+                                            <div className="h-12 w-12 rounded-xl bg-indigo-500/10 flex items-center justify-center border border-indigo-500/20">
+                                                <Users className="h-6 w-6 text-indigo-400" />
+                                            </div>
+                                            {partner.isCoordinator && (
+                                                <Badge className="bg-yellow-500/10 text-yellow-500 border border-yellow-500/20 text-[10px] uppercase font-black italic">Coordinator</Badge>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <h5 className="font-bold text-lg">{partner.name}</h5>
+                                            <p className="text-xs text-muted-foreground font-mono mt-0.5">Role: {partner.role || 'Partner'}</p>
+                                        </div>
+                                        <p className="text-xs text-muted-foreground line-clamp-3 leading-relaxed">
+                                            {partner.description}
+                                        </p>
+                                    </div>
+                                </Card>
+                            ))}
+                        </div>
+                    </div>
+                </TabsContent>
+
+                {/* Narrative Structure */}
+                <TabsContent value="narrative" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="grid grid-cols-1 md:grid-cols-4 gap-8">
+                        <div className="md:col-span-1 space-y-4">
+                            <Card className="bg-secondary/10 border-white/5 rounded-3xl p-6 sticky top-24 backdrop-blur-xl shadow-2xl">
+                                <h4 className="text-xs font-black uppercase tracking-widest text-primary/50 mb-4">Structural Layout</h4>
+                                <ScrollArea className="h-[60vh] -mx-2 px-2">
+                                    <div className="space-y-1">
+                                        <div className="px-3 py-2 rounded-xl bg-primary/10 text-primary flex items-center gap-2 font-bold cursor-pointer mb-2">
+                                            <div className="h-1.5 w-1.5 rounded-full bg-primary animate-pulse"></div>
+                                            Summary
+                                        </div>
+                                        {Object.keys(proposal.dynamicSections || {}).map((key, idx) => (
+                                            <div key={key} className="px-3 py-2 rounded-xl hover:bg-white/5 text-muted-foreground hover:text-white transition-colors text-sm flex items-center gap-2 cursor-pointer">
+                                                <span className="text-[10px] font-mono opacity-30">{idx + 1}.</span>
+                                                <span className="truncate uppercase tracking-tight">{key.replace(/_/g, ' ')}</span>
+                                            </div>
+                                        ))}
+                                    </div>
+                                </ScrollArea>
+                            </Card>
+                        </div>
+
+                        <div className="md:col-span-3 space-y-12 pb-20">
+                            <section className="space-y-6">
+                                <div className="space-y-2 border-b border-white/5 pb-4">
+                                    <h2 className="text-3xl font-black italic tracking-tight">Project Summary</h2>
+                                    <p className="text-xs text-muted-foreground uppercase tracking-[0.3em] font-bold">Executive Overview</p>
+                                </div>
+                                <div className="prose prose-invert prose-blue max-w-none text-muted-foreground leading-loose"
+                                    dangerouslySetInnerHTML={{ __html: proposal.summary }} />
+                            </section>
+
+                            {Object.entries(proposal.dynamicSections || {}).map(([key, content]: [string, any], idx) => (
+                                <section key={key} id={key} className="space-y-6 relative">
+                                    <div className="absolute -left-4 top-0 bottom-0 w-px bg-white/5"></div>
+                                    <div className="space-y-2">
+                                        <h2 className="text-3xl font-black italic tracking-tight capitalize">
+                                            {key.replace(/_/g, ' ')}
+                                        </h2>
+                                        <p className="text-[10px] text-primary font-bold uppercase tracking-widest">Section 0{idx + 1}</p>
+                                    </div>
+                                    <div className="prose prose-invert prose-indigo max-w-none text-muted-foreground leading-loose"
+                                        dangerouslySetInnerHTML={{ __html: content }} />
+                                </section>
+                            ))}
+                        </div>
+                    </div>
+                </TabsContent>
+
+                {/* Settings Tab */}
+                <TabsContent value="settings" className="max-w-3xl mx-auto animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <Card className="bg-secondary/10 border-white/5 rounded-[40px] p-12 overflow-hidden relative shadow-2xl">
+                        <div className="absolute top-0 right-0 h-32 w-32 bg-primary/20 blur-[100px] -mr-16 -mt-16 rounded-full"></div>
+                        <div className="space-y-8 relative">
+                            <div className="space-y-2">
+                                <h3 className="text-3xl font-black italic">Proposal Configuration</h3>
+                                <p className="text-muted-foreground">Fine-tune the project metadata and core parameters.</p>
+                            </div>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+                                <div className="space-y-4">
+                                    <label className="text-xs font-black uppercase tracking-widest text-primary">Target Currency</label>
+                                    <Input defaultValue="EUR (€)" className="bg-black/40 border-white/10 rounded-2xl h-12" />
+                                </div>
+                                <div className="space-y-4">
+                                    <label className="text-xs font-black uppercase tracking-widest text-primary">Language Settings</label>
+                                    <Input defaultValue="English (EN)" className="bg-black/40 border-white/10 rounded-2xl h-12" />
+                                </div>
+                            </div>
+                        </div>
+                    </Card>
                 </TabsContent>
             </Tabs>
-
-            <DeleteConfirmDialog
-                open={deleteDialogOpen}
-                onOpenChange={setDeleteDialogOpen}
-                onConfirm={handleRemovePartnerConfirm}
-                title="Remove Partner from Proposal"
-                description={`Are you sure you want to remove ${partnerToRemove?.name} from this proposal? This action cannot be undone.`}
-            />
-
-            {/* Project Configuration - Full Screen Page */}
-            {isSettingsOpen && (
-                <div className="fixed inset-0 z-50 bg-background flex flex-col animate-in fade-in slide-in-from-bottom-4 duration-200">
-                    {/* Header */}
-                    <div className="border-b px-6 py-4 flex items-center justify-between bg-card/50 backdrop-blur-sm sticky top-0 z-10">
-                        <div className="flex items-center gap-4">
-                            <Button variant="ghost" size="icon" onClick={() => setIsSettingsOpen(false)}>
-                                <ArrowLeft className="h-5 w-5" />
-                            </Button>
-                            <div>
-                                <h2 className="text-xl font-semibold">Project Configuration</h2>
-                                <p className="text-sm text-muted-foreground">Manage global settings and constraints</p>
-                            </div>
-                        </div>
-                        <div className="flex gap-2">
-                            <Button variant="destructive" onClick={onBack}>
-                                Exit Proposal
-                            </Button>
-                            <Button onClick={saveSettingsToBackend} className="min-w-[120px]">
-                                Save & Close
-                            </Button>
-                        </div>
-                    </div>
-
-                    {/* Content */}
-                    <div className="flex-1 overflow-y-auto">
-                        <div className="max-w-4xl mx-auto p-8 space-y-8">
-
-                            {/* Main Settings Card */}
-                            <Card>
-                                <CardHeader>
-                                    <CardTitle>General Settings</CardTitle>
-                                    <CardDescription>Configure the base parameters for your proposal</CardDescription>
-                                </CardHeader>
-                                <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                                    <div className="space-y-2">
-                                        <Label className="text-base">Project Currency</Label>
-                                        <select
-                                            className="flex h-12 w-full rounded-md border border-input bg-background px-3 py-2 text-sm ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2"
-                                            value={settings.currency}
-                                            onChange={(e) => handleSaveSettings({ ...settings, currency: e.target.value })}
-                                        >
-                                            <option value="EUR">EUR (€)</option>
-                                            <option value="USD">USD ($)</option>
-                                            <option value="GBP">GBP (£)</option>
-                                            <option value="CHF">CHF (Fr)</option>
-                                            <option value="NOK">NOK (kr)</option>
-                                            <option value="SEK">SEK (kr)</option>
-                                            <option value="DKK">DKK (kr)</option>
-                                            <option value="ISK">ISK (kr)</option>
-                                            <option value="PLN">PLN (zł)</option>
-                                            <option value="CZK">CZK (Kč)</option>
-                                            <option value="HUF">HUF (Ft)</option>
-                                            <option value="RON">RON (lei)</option>
-                                            <option value="BGN">BGN (лв)</option>
-                                            <option value="HRK">HRK (kn)</option>
-                                            <option value="TRY">TRY (₺)</option>
-                                        </select>
-                                        <p className="text-xs text-muted-foreground">Select the primary currency for budget calculations.</p>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label className="text-base">Source URL</Label>
-                                        <Input
-                                            className="h-12"
-                                            value={settings.sourceUrl || ''}
-                                            onChange={(e) => handleSaveSettings({ ...settings, sourceUrl: e.target.value })}
-                                            placeholder="https://..."
-                                        />
-                                        <p className="text-xs text-muted-foreground">Link to the funding call or project description.</p>
-                                    </div>
-                                </CardContent>
-                            </Card>
-
-                            {/* Custom Parameters Card */}
-                            <Card>
-                                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-4">
-                                    <div className="space-y-1">
-                                        <CardTitle>Custom Parameters</CardTitle>
-                                        <CardDescription>Define specific constraints like Max Budget, Duration, or Partner Requirements</CardDescription>
-                                    </div>
-                                    <Button
-                                        variant="outline"
-                                        onClick={() => {
-                                            const newParams = [...(settings.customParams || []), { key: 'New Parameter', value: '' }];
-                                            handleSaveSettings({ ...settings, customParams: newParams });
-                                        }}
-                                    >
-                                        <Plus className="h-4 w-4 mr-2" />
-                                        Add Parameter
-                                    </Button>
-                                </CardHeader>
-                                <CardContent>
-                                    <div className="border rounded-lg overflow-hidden">
-                                        <table className="w-full text-sm">
-                                            <thead className="bg-muted/50">
-                                                <tr className="border-b">
-                                                    <th className="text-left p-4 font-medium w-1/3">Parameter Name</th>
-                                                    <th className="text-left p-4 font-medium">Value</th>
-                                                    <th className="w-[60px]"></th>
-                                                </tr>
-                                            </thead>
-                                            <tbody>
-                                                {(!settings.customParams || settings.customParams.length === 0) && (
-                                                    <tr>
-                                                        <td colSpan={3} className="p-8 text-center text-muted-foreground bg-muted/10">
-                                                            <div className="flex flex-col items-center gap-2">
-                                                                <Settings className="h-8 w-8 opacity-20" />
-                                                                <p>No custom parameters defined yet.</p>
-                                                            </div>
-                                                        </td>
-                                                    </tr>
-                                                )}
-                                                {settings.customParams?.map((param, index) => (
-                                                    <tr key={index} className="border-b last:border-0 hover:bg-muted/5">
-                                                        <td className="p-3">
-                                                            <Input
-                                                                value={param.key}
-                                                                onChange={(e) => {
-                                                                    const newParams = [...(settings.customParams || [])];
-                                                                    newParams[index].key = e.target.value;
-                                                                    handleSaveSettings({ ...settings, customParams: newParams });
-                                                                }}
-                                                                className="border-transparent hover:border-input focus:border-input bg-transparent"
-                                                                placeholder="e.g. Max Budget"
-                                                            />
-                                                        </td>
-                                                        <td className="p-3">
-                                                            <Input
-                                                                value={param.value}
-                                                                onChange={(e) => {
-                                                                    const newParams = [...(settings.customParams || [])];
-                                                                    newParams[index].value = e.target.value;
-                                                                    handleSaveSettings({ ...settings, customParams: newParams });
-                                                                }}
-                                                                className="border-transparent hover:border-input focus:border-input bg-transparent"
-                                                                placeholder="e.g. 500,000 EUR"
-                                                            />
-                                                        </td>
-                                                        <td className="p-3 text-right">
-                                                            <Button
-                                                                variant="ghost"
-                                                                size="icon"
-                                                                className="text-muted-foreground hover:text-destructive hover:bg-destructive/10"
-                                                                onClick={() => {
-                                                                    const newParams = [...(settings.customParams || [])];
-                                                                    newParams.splice(index, 1);
-                                                                    handleSaveSettings({ ...settings, customParams: newParams });
-                                                                }}
-                                                            >
-                                                                <Trash2 className="h-4 w-4" />
-                                                            </Button>
-                                                        </td>
-                                                    </tr>
-                                                ))}
-                                            </tbody>
-                                        </table>
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        </div>
-                    </div>
-                </div>
-            )}
-            {/* AI Section Generator Dialog */}
-            <Dialog open={isAiSectionDialogOpen} onOpenChange={setIsAiSectionDialogOpen}>
-                <DialogContent className="sm:max-w-[600px]">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <SparklesIcon className="h-5 w-5 text-primary" />
-                            AI Section Generator
-                        </DialogTitle>
-                    </DialogHeader>
-                    <div className="space-y-4 py-4">
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">What section would you like to add?</label>
-                            <Input
-                                placeholder="E.g., 'Market Analysis', 'Technical Approach', 'Dissemination Strategy'..."
-                                value={aiSectionPrompt}
-                                onChange={(e) => setAiSectionPrompt(e.target.value)}
-                                disabled={isGeneratingSection}
-                            />
-                        </div>
-                        <div className="bg-secondary/30 rounded-lg p-4 space-y-2">
-                            <div className="flex items-start gap-2">
-                                <SparklesIcon className="h-4 w-4 text-primary mt-0.5 shrink-0" />
-                                <div className="text-sm text-muted-foreground">
-                                    <p className="font-medium text-foreground mb-1">AI will generate:</p>
-                                    <ul className="space-y-1 text-xs">
-                                        <li>• Comprehensive content based on your proposal context</li>
-                                        <li>• Well-structured paragraphs with proper formatting</li>
-                                        <li>• Relevant to your project objectives and methodology</li>
-                                    </ul>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                    <div className="flex justify-end gap-2">
-                        <Button
-                            variant="outline"
-                            onClick={() => {
-                                setIsAiSectionDialogOpen(false);
-                                setAiSectionPrompt('');
-                            }}
-                            disabled={isGeneratingSection}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            onClick={async () => {
-                                if (!aiSectionPrompt.trim() || !proposal) return;
-
-                                setIsGeneratingSection(true);
-                                try {
-                                    // Construct rich context including settings
-                                    let richContext = proposal?.summary || '';
-                                    if (proposal?.settings?.customParams?.length) {
-                                        richContext += "\n\nProject Constraints & Configuration:";
-                                        proposal.settings.customParams.forEach(p => {
-                                            richContext += `\n- ${p.key}: ${p.value}`;
-                                        });
-                                    }
-
-                                    // Call Gemini API to generate section content
-                                    const response = await fetch(`${serverUrl}/generate-section`, {
-                                        method: 'POST',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            'Authorization': `Bearer ${publicAnonKey}`,
-                                        },
-                                        body: JSON.stringify({
-                                            sectionTitle: aiSectionPrompt,
-                                            proposalContext: richContext,
-                                            existingSections: sections.map(s => s.title)
-                                        }),
-                                    });
-
-                                    if (!response.ok) throw new Error('Failed to generate section');
-
-                                    const data = await response.json();
-
-                                    // Add the new section to the proposal
-                                    const newSection = {
-                                        id: `custom-${Date.now()}`,
-                                        title: data.title,
-                                        content: data.content
-                                    };
-
-                                    const updatedProposal = {
-                                        ...proposal,
-                                        customSections: [...(proposal.customSections || []), newSection]
-                                    };
-
-                                    setProposal(updatedProposal);
-
-                                    // Save to backend
-                                    await fetch(`${serverUrl}/proposals/${proposal.id}`, {
-                                        method: 'PUT',
-                                        headers: {
-                                            'Content-Type': 'application/json',
-                                            'Authorization': `Bearer ${publicAnonKey}`,
-                                        },
-                                        body: JSON.stringify(updatedProposal),
-                                    });
-
-                                    toast.success(`Section "${aiSectionPrompt}" added successfully!`);
-
-                                    setIsAiSectionDialogOpen(false);
-                                    setAiSectionPrompt('');
-
-                                    // Scroll to the new section after a short delay
-                                    setTimeout(() => {
-                                        document.getElementById(newSection.id)?.scrollIntoView({ behavior: 'smooth' });
-                                    }, 300);
-                                } catch (error) {
-                                    console.error('Generation error:', error);
-                                    toast.error('Failed to generate section. Please try again.');
-                                } finally {
-                                    setIsGeneratingSection(false);
-                                }
-                            }}
-                            disabled={!aiSectionPrompt.trim() || isGeneratingSection}
-                            className="bg-primary hover:bg-primary/90"
-                        >
-                            {isGeneratingSection ? (
-                                <>
-                                    <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                                    Generating...
-                                </>
-                            ) : (
-                                <>
-                                    <SparklesIcon className="h-4 w-4 mr-2" />
-                                    Generate Section
-                                </>
-                            )}
-                        </Button>
-                    </div>
-                </DialogContent>
-            </Dialog>
-
-            {/* Edit Section Dialog */}
-            <Dialog open={isEditDialogOpen} onOpenChange={setIsEditDialogOpen}>
-                <DialogContent className="sm:max-w-[800px] max-h-[80vh] flex flex-col">
-                    <DialogHeader>
-                        <DialogTitle>Edit Section: {editingSectionTitle}</DialogTitle>
-                    </DialogHeader>
-
-                    <Tabs defaultValue="manual" className="flex-1 flex flex-col min-h-0">
-                        <TabsList className="grid w-full grid-cols-2">
-                            <TabsTrigger value="manual">Manual Edit</TabsTrigger>
-                            <TabsTrigger value="ai">AI Assistant</TabsTrigger>
-                        </TabsList>
-
-                        <TabsContent value="manual" className="flex-1 flex flex-col min-h-0 mt-4 space-y-4">
-                            <Textarea
-                                value={editingContent}
-                                onChange={(e) => setEditingContent(e.target.value)}
-                                className="flex-1 min-h-[300px] font-mono text-sm"
-                            />
-                            <div className="flex justify-end gap-2">
-                                <Button variant="outline" onClick={() => setIsEditDialogOpen(false)}>Cancel</Button>
-                                <Button onClick={handleManualSave}>Save Changes</Button>
-                            </div>
-                        </TabsContent>
-
-                        <TabsContent value="ai" className="flex-1 flex flex-col min-h-0 mt-4 space-y-4">
-                            <div className="bg-secondary/20 p-4 rounded-lg space-y-2">
-                                <h4 className="font-medium flex items-center gap-2">
-                                    <Sparkles className="h-4 w-4 text-primary" />
-                                    AI Instructions
-                                </h4>
-                                <p className="text-sm text-muted-foreground">
-                                    Tell the AI how to improve this section. For example: "Make it more concise", "Add a paragraph about sustainability", or "Fix grammar".
-                                </p>
-                                <Textarea
-                                    value={aiEditInstruction}
-                                    onChange={(e) => setAiEditInstruction(e.target.value)}
-                                    placeholder="Enter instructions for the AI..."
-                                    className="h-24"
-                                />
-                                <Button
-                                    onClick={handleAiEdit}
-                                    disabled={!aiEditInstruction || isAiEditing}
-                                    className="w-full"
-                                >
-                                    {isAiEditing ? (
-                                        <>
-                                            <div className="animate-spin rounded-full h-4 w-4 border-t-2 border-b-2 border-white mr-2"></div>
-                                            Generating...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <Sparkles className="h-4 w-4 mr-2" />
-                                            Generate with AI
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
-
-                            <div className="flex-1 min-h-0 flex flex-col">
-                                <Label>Current Content Preview:</Label>
-                                <div className="flex-1 border rounded-md p-4 overflow-y-auto bg-card/50 mt-2 prose prose-invert max-w-none text-sm">
-                                    <div dangerouslySetInnerHTML={{ __html: editingContent }} />
-                                </div>
-                            </div>
-                        </TabsContent>
-                    </Tabs>
-                </DialogContent>
-            </Dialog>
-
-            {/* Copilot Toggle Button */}
-            <Button
-                className="fixed bottom-6 right-6 h-14 w-14 rounded-full shadow-xl z-40 bg-gradient-to-r from-primary to-purple-600 hover:scale-105 transition-transform"
-                onClick={() => setIsCopilotOpen(!isCopilotOpen)}
-            >
-                <Sparkles className="h-6 w-6 text-white" />
-            </Button>
-
-            {/* Copilot Sidebar */}
-            <ProposalCopilot
-                proposalId={proposalId}
-                isOpen={isCopilotOpen}
-                onClose={() => setIsCopilotOpen(false)}
-                onProposalUpdate={loadProposal}
-            />
-            {/* Prompt Dialog */}
-            <Dialog open={showPrompt} onOpenChange={setShowPrompt}>
-                <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto bg-[#1E1E1E] text-white border-white/10 p-6">
-                    <DialogHeader>
-                        <DialogTitle className="flex items-center gap-2">
-                            <Terminal className="h-5 w-5 text-primary" />
-                            Generation Prompt
-                        </DialogTitle>
-                    </DialogHeader>
-                    <div className="mt-4 p-4 rounded bg-black/50 font-mono text-xs whitespace-pre-wrap border border-white/5 selection:bg-primary/30">
-                        {proposal.generationPrompt || 'Prompt not available for this proposal.'}
-                    </div>
-                </DialogContent>
-            </Dialog>
         </div>
-    );
-}
-
-
-
-function SparklesIcon(props: any) {
-    return (
-        <svg
-            {...props}
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-        >
-            <path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z" />
-        </svg>
     );
 }

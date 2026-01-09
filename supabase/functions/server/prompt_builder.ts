@@ -170,37 +170,38 @@ export function buildProposalPrompt(
     return result;
   };
 
-  const allSections = fundingScheme?.template_json?.sections
+  let allSections = fundingScheme?.template_json?.sections
     ? flattenSections(fundingScheme.template_json.sections)
-    : [];
+    : [
+      { key: 'project_summary', label: 'Project Summary', description: 'Overview of project.' },
+      { key: 'relevance', label: 'Relevance', description: 'Why this project is needed.' },
+      { key: 'impact', label: 'Impact', description: 'Expected change.' }
+    ];
 
-  // FORCE: If this is an Erasmus-style project or missing WPs, ensure we have slots for 4 WPs
+  // ALWAYS FORCE 4 WPs in the narrative sections if not present
   const hasMultipleWPs = allSections.some(s => s.key.includes('work_package_2'));
-  if (!hasMultipleWPs && fundingScheme) {
+  if (!hasMultipleWPs) {
     const wp1Idx = allSections.findIndex(s => s.key.includes('work_package_1'));
-    if (wp1Idx !== -1) {
-      allSections.splice(wp1Idx + 1, 0,
-        { key: 'work_package_2', label: 'Work package n°2 - Platform Development', description: 'Technical design and development of the core solution.' },
-        { key: 'work_package_3', label: 'Work package n°3 - Implementation & Testing', description: 'Piloting and real-world testing with target groups.' },
-        { key: 'work_package_4', label: 'Work package n°4 - Dissemination & Sustainability', description: 'Impact assessment and long-term sharing of results.' }
-      );
+    const insertIdx = wp1Idx !== -1 ? wp1Idx + 1 : allSections.length;
+
+    // If WP1 is missing too, add it
+    if (wp1Idx === -1) {
+      allSections.push({ key: 'work_package_1', label: 'Work Package 1: Management', description: 'Coordination and admin.' });
     }
+
+    allSections.splice(insertIdx, 0,
+      { key: 'work_package_2', label: 'Work Package 2: Technical Development', description: 'Building the core solution.' },
+      { key: 'work_package_3', label: 'Work Package 3: Implementation', description: 'Deploying and testing.' },
+      { key: 'work_package_4', label: 'Work Package 4: Dissemination', description: 'Sharing results.' }
+    );
   }
 
   const partnerInfo = partners.length > 0
-    ? `\n\nCONSORTIUM PARTNERS (LOADED FROM DATABASE):\n${partners.map(p => `- ${p.name}${p.acronym ? ` (${p.acronym})` : ''} - ${p.country || 'Country not specified'}${p.isCoordinator ? ' [LEAD COORDINATOR]' : ''}\n  - Profile: ${p.description || 'No description'}\n  - Expertise: ${p.experience || ''}\n  - Past Projects: ${p.relevantProjects || ''}`).join('\n')}`
+    ? `\n\nCONSORTIUM PARTNERS (REQUIRED - YOU MUST USE ALL OF THEM):\n${partners.map(p => `- ${p.name}${p.acronym ? ` (${p.acronym})` : ''} - ${p.country || 'Country not specified'}${p.isCoordinator ? ' [LEAD COORDINATOR]' : ''}\n  - Profile: ${p.description || 'No description'}\n  - Expertise: ${p.experience || ''}`).join('\n')}`
     : '';
 
   const userRequirements = userPrompt
     ? `\n\n🎯 MANDATORY USER REQUIREMENTS - MUST BE ADDRESSED IN ALL SECTIONS:\n${userPrompt}\n============================================================`
-    : '';
-
-  const dynamicSchemeInstructions = fundingScheme
-    ? `\n\nFUNDING SCHEME TEMPLATE (${fundingScheme.name}):
-The proposal MUST follow this specific structure. You MUST generate content for EVERY key listed below. DO NOT skip any keys.
-${allSections.map((s: FlatSection) =>
-      `- ${s.label} (Key: "${s.key}"): ${s.description}${s.charLimit ? ` [Limit: ${s.charLimit} chars]` : ''}${s.aiPrompt ? ` [Instruction: ${s.aiPrompt}]` : ''}`
-    ).join('\n')}`
     : '';
 
   return `You are an expert EU funding proposal writer.
@@ -215,54 +216,51 @@ CONSTRAINTS & REQUIREMENTS:
 ${userRequirements}
 - Partners: ${constraints.partners || 'Not specified'}
 - Budget: ${constraints.budget || 'Not specified'}
-- Duration: ${constraints.duration || 'Not specified'}${partnerInfo}${dynamicSchemeInstructions}
+- Duration: ${constraints.duration || 'Not specified'}${partnerInfo}
 
-CURRENT CONTEXTUAL DATE: January 2026
-STRICT DATE RULES:
-1. All Project Start Dates MUST be in the future (after January 2026).
-2. DO NOT include "(dd/mm/yyyy)" in any labels or headers.
-3. Currency MUST always be formatted with the symbol first, e.g., "€60,000".
+CURRENT DATE: January 2026
+CURRENCY: Format as "€XXX,XXX" (comma for thousands).
 
-TASK: Generate a comprehensive and HIGHLY DETAILED funding proposal.
+TASK: Generate a comprehensive, HIGH-QUALITY technical funding proposal.
 
-CRITICAL INSTRUCTIONS:
-1. **STRUCTURE PRIORITIZATION**: The JSON output format below puts structured data (partners, workPackages, budget) FIRST. You MUST complete these fully with data based on the provided partners and requirement.
-2. **BUDGET PRECISION**: If a budget total is specified (e.g. €250,000), the sum of all costs in the budget table MUST MATCH EXACTLY. Add a "Miscellaneous" or "Contingency" line if necessary.
-3. **FOUR WORK PACKAGES**: You MUST generate exactly 4 unique Work Packages (WP1 to WP4). Each needs unique activities and budget allocations.
-4. **ALL PARTNERS**: You MUST include ALL ${partners.length} selected partners in the "partners" array. Match names exactly.
-5. **NARRATIVE DEPTH**: Each section in "dynamicSections" must be 2-3 paragraphs of high-quality technical content.
+STRICT JSON OUTPUT RULES:
+1. **EXACTLY ${partners.length || 1} PARTNERS**: You MUST include EVERY partner mentioned in the context above in the "partners" array.
+2. **EXACTLY 4 WORK PACKAGES**: You MUST generate EXACTLY 4 unique Work Packages (WP1, WP2, WP3, WP4) in the "workPackages" array.
+3. **EXACTLY €${constraints.budget ? constraints.budget : '250,000'} TOTAL BUDGET**: The sum of all items in "budget" MUST be EXACTLY the requested amount.
+4. **NARRATIVE SECTIONS**: Provide technical content for EVERY key in the "dynamicSections" object below.
 
-OUTPUT FORMAT (JSON ONLY):
+OUTPUT FORMAT (JSON ONLY, NO MARKDOWN):
 {
   "title": "${idea.title}",
   "partners": [
-    { "name": "Partner Name", "role": "Role in project", "isCoordinator": true, "description": "..." }
+    ${partners.map(p => `{ "name": "${p.name}", "role": "State their specific role...", "isCoordinator": ${p.isCoordinator || false}, "description": "Technical description of their contribution..." }`).join(',\n    ')}
   ],
   "workPackages": [
     {
-      "name": "WP1: Project Management",
+      "name": "WP1: Project Management & Coordination",
       "description": "...",
       "duration": "M1-M24",
-      "activities": [{ "name": "...", "description": "...", "leadPartner": "...", "participatingPartners": ["..."], "estimatedBudget": 5000 }],
-      "deliverables": ["..."]
+      "activities": [{ "name": "Management", "description": "...", "leadPartner": "${partners[0]?.name || 'Partner 1'}", "participatingPartners": [${partners.slice(1).map(p => `"${p.name}"`).join(', ')}], "estimatedBudget": 10000 }],
+      "deliverables": ["Management Plan"]
     },
-    { "name": "WP2: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] },
-    { "name": "WP3: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] },
-    { "name": "WP4: ...", "description": "...", "duration": "...", "activities": [...], "deliverables": [...] }
+    { "name": "WP2: Technical Design", "description": "...", "duration": "M3-M12", "activities": [...], "deliverables": [...] },
+    { "name": "WP3: Implementation", "description": "...", "duration": "M12-M24", "activities": [...], "deliverables": [...] },
+    { "name": "WP4: Dissemination & Sustainability", "description": "...", "duration": "M1-M24", "activities": [...], "deliverables": [...] }
   ],
   "budget": [
     {
-      "item": "...",
-      "cost": 10000,
+      "item": "Staff Costs",
+      "cost": 150000,
       "description": "...",
-      "breakdown": [{ "subItem": "...", "quantity": 1, "unitCost": 10000, "total": 10000 }],
-      "partnerAllocations": [{ "partner": "...", "amount": 10000 }]
-    }
+      "breakdown": [{ "subItem": "Senior Experts", "quantity": 10, "unitCost": 15000, "total": 150000 }],
+      "partnerAllocations": [${partners.map(p => `{ "partner": "${p.name}", "amount": ${Math.floor(150000 / (partners.length || 1))} }`).join(', ')}]
+    },
+    { "item": "Miscellaneous / Contingency", "cost": 0, "description": "Adjustment to match exact budget requirement", "breakdown": [], "partnerAllocations": [] }
   ],
   "risks": [{ "risk": "...", "likelihood": "Low", "impact": "High", "mitigation": "..." }],
-  "summary": "<p>...</p>",
+  "summary": "<p>Technical summary...</p>",
   "dynamicSections": {
-    ${allSections.map((s: FlatSection) => `"${s.key}": "<p>Content for ${s.label}...</p>"`).join(',\n    ')}
+    ${allSections.map((s: FlatSection) => `"${s.key}": "<p>Technical narrative for ${s.label}...</p>"`).join(',\n    ')}
   }
 }
 
