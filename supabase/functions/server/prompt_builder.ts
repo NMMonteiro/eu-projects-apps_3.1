@@ -184,94 +184,101 @@ export function buildProposalPrompt(
     : '';
 
   // Robust budget extraction: handle dot as thousands separator (250.000) or comma (250,000)
+  // Robust budget extraction
   const extractNumericBudget = (text: string): number | null => {
     if (!text) return null;
-    const cleanText = text.replace(/&nbsp;/g, ' ').replace(/\s/g, '').replace(/,/g, '');
-    const match = cleanText.match(/(?:€|EUR|budgetof|totalof|amountof)?(\d+)/i);
-    return match ? parseInt(match[1]) : null;
+    let clean = text.replace(/&nbsp;/g, ' ').replace(/\s/g, '');
+    const match = clean.match(/(?:€|EUR|budgetof|totalof|amountof)?(\d{1,3}(?:[.,]\d{3})*(?:[.,]\d{2})?)/i);
+    if (!match) return null;
+    let val = match[1];
+    if (val.includes('.') && val.includes(',')) {
+      val = val.indexOf('.') < val.indexOf(',') ? val.split(',')[0].replace(/\./g, '') : val.split('.')[0].replace(/,/g, '');
+    } else if (val.includes('.') || val.includes(',')) {
+      const sep = val.includes('.') ? '.' : ',';
+      const parts = val.split(sep);
+      if (parts[parts.length - 1].length === 3) val = val.replace(/[.,]/g, '');
+      else val = parts[0].replace(/[.,]/g, '');
+    }
+    return parseInt(val) || null;
   };
 
   const rawBudget = extractNumericBudget(userPrompt || '') || extractNumericBudget(constraints.budget || '') || 250000;
-  // Ensure we don't have a suspiciously low budget (less than 1000)
   const budgetNum = rawBudget < 1000 ? 250000 : rawBudget;
 
   const finalBudgetStr = `€${budgetNum.toLocaleString()}`;
   const personnelBudget = Math.floor(budgetNum * 0.6);
   const operationalBudget = Math.floor(budgetNum * 0.4);
 
+  const partnerDictionary = partners.map(p => `[PARTNER: "${p.name}"] 
+   - Acronym: ${p.acronym || 'N/A'}
+   - Role: ${p.isCoordinator ? 'Lead Coordinator' : 'Technical Partner'}
+   - Profile: ${p.description || 'No description provided'}
+   - Expertise: ${p.experience || 'No expertise provided'}`).join('\n\n');
+
   const sectionInstructions = allSections.map((s, i) => {
-    return `SECTION [${i + 1}]: ${s.label} (Key: "${s.key}")
-    Description: ${s.description}
-    AI Instructions: ${s.aiPrompt || 'Write a detailed technical narrative for this section.'}
-    Requirement: You MUST provide the full content for this section in "dynamicSections["${s.key}"]".`;
+    return `SECTION [${i + 1}]: ${s.label}
+    KEY: "${s.key}"
+    DESC: ${s.description}
+    AI PROMPT: ${s.aiPrompt || 'Write a technical narrative.'}
+    REQUIRED: Return content in "dynamicSections["${s.key}"]".`;
   }).join('\n\n');
 
-  return `You are a high-level EU grant writing consultant. You are drafting a multi-million euro proposal.
+  return `You are a professional EU grant writer. Your task is to generate a HIGH-QUALITY proposal for the following project.
 
-IMPORTANT: ALL BUDGET VALUES MUST BE LARGE INTEGERS. NEVER USE FRACTIONS OR RATIOS (e.g., 0.3).
-Example: If the total budget is €250,000, then "cost" should be 250000.
-
-SELECTED PROJECT IDEA:
+PROJECT IDEA:
 Title: ${idea.title}
 Description: ${idea.description}
 
-CONTEXT & BACKGROUND: 
-${summary}
+CONSORTIUM PARTNERS (MANDATORY - USE ONLY THESE NAMES):
+${partnerDictionary}
 
-CONSTRAINTS & REQUIREMENTS:
-${userRequirements}
-- ALL PARTNERS MUST BE INCLUDED: You have EXACTLY ${partners.length} organizations to distribute work and budget to.
-- EXACT TOTAL BUDGET: The sum of all items in the "budget" array MUST TOTAL EXACTLY ${budgetNum}.
-- MULTIPLE WORK PACKAGES: Generate 4-6 Work Packages in the "workPackages" array.
-- NARRATIVE SEQUENCE: Follow the EXACT sequence of the Funding Scheme Template below.
+BUDGET CONSTRAINTS:
+- TOTAL BUDGET: ${finalBudgetStr} (${budgetNum})
+- CRITICAL: Use ONLY large integers for all "cost" and "amount" fields. NO DECIMALS (e.g. use 45000, not 4.5).
 
-${partnerInfo}
-
-FUNDING SCHEME TEMPLATE:
+STRUCTURE TO FOLLOW:
 ${sectionInstructions}
 
 STRICT OUTPUT RULES:
-1. **INTEGERS ONLY**: All "cost", "unitCost", and "amount" fields MUST be integers (e.g. 45000). Total must be exactly ${budgetNum}.
-2. **WP ACTIVITIES**: Every Work Package MUST have at least 3-4 activities with individual lead partners and estimated budgets.
-3. **NARRATIVE CONTENT**: Every section (including WPs) MUST have a corresponding HTML narrative in "dynamicSections".
-4. **NARRATIVE QUALITY**: Content must be academic, technical, and professional. Use H3, H4, P, UL, LI tags.
+1. **NO HALLUCINATIONS**: Do NOT include partners not listed above (e.g. No "Science Box", No "ILT").
+2. **ALL SECTIONS**: You MUST fill "dynamicSections" for EVERY key provided in the template above.
+3. **PARTNER ROLES**: In "partnership_arrangements", explain precisely how these SPECIFIC partners work together.
+4. **JSON ONLY**: Return ONLY a valid JSON object.
+5. **NARRATIVE CONTENT**: Use professional HTML (H3, P, UL, LI) within section values.
 
-OUTPUT FORMAT (JSON ONLY):
+OUTPUT JSON FORMAT:
 {
   "title": "${idea.title}",
   "partners": [
-    ${partners.map(p => `{ "name": "${p.name}", "role": "${p.isCoordinator ? 'Project Coordinator' : 'Technical Partner'}", "isCoordinator": ${p.isCoordinator || false}, "description": "Professional 3-sentence profile..." }`).join(',\n    ')}
+    ${partners.map(p => `{ "name": "${p.name}", "role": "${p.isCoordinator ? 'Project Coordinator' : 'Partner'}", "isCoordinator": ${p.isCoordinator || false}, "description": "Profile based on provided expertise..." }`).join(',\n    ')}
   ],
   "workPackages": [
     {
-      "name": "WP1: Project Management & Coordination",
-      "description": "Administrative and technical management throughout M1-M24.",
+      "name": "WP1: Project Management",
+      "description": "...",
       "duration": "M1-M24",
       "activities": [
-        { "name": "Financial Management", "description": "...", "leadPartner": "${partners[0]?.name}", "participatingPartners": [], "estimatedBudget": ${Math.floor(personnelBudget * 0.1)} }
+        { "name": "...", "description": "...", "leadPartner": "${partners[0]?.name}", "estimatedBudget": ${Math.floor(personnelBudget * 0.1)} }
       ],
-      "deliverables": ["Progress Report 1", "Management Plan"]
+      "deliverables": []
     }
   ],
   "budget": [
     {
-      "item": "Personnel - Project Management",
-      "cost": ${Math.floor(personnelBudget * 0.2)},
-      "description": "Management staff costs.",
-      "breakdown": [
-        { "subItem": "Project Manager", "quantity": 1, "unitCost": ${Math.floor(personnelBudget * 0.2)}, "total": ${Math.floor(personnelBudget * 0.2)} }
-      ],
-      "partnerAllocations": [${partners.map(p => `{ "partner": "${p.name}", "amount": ${Math.floor((personnelBudget * 0.2) / partners.length)} }`).join(', ')}]
+      "item": "Personnel",
+      "cost": ${personnelBudget},
+      "breakdown": [{ "subItem": "Staff", "quantity": 1, "unitCost": ${personnelBudget}, "total": ${personnelBudget} }],
+      "partnerAllocations": [${partners.map(p => `{ "partner": "${p.name}", "amount": ${Math.floor(personnelBudget / partners.length)} }`).join(', ')}]
     }
   ],
-  "risks": [{ "risk": "Technical failure", "likelihood": "Low", "impact": "High", "mitigation": "Redundancy measures..." }],
-  "summary": "Full executive summary (HTML)...",
+  "risks": [{ "risk": "...", "likelihood": "...", "impact": "...", "mitigation": "..." }],
+  "summary": "Full project summary HTML...",
   "dynamicSections": {
-    "context": "HTML content...",
-    "project_summary": "HTML content..."
-    // INCLUDE EVERY KEY FROM THE TEMPLATE
+    "section_key": "Full technical content based on AI PROMPT instructions..."
   }
 }
 
 Return ONLY valid JSON.`;
 }
+
+

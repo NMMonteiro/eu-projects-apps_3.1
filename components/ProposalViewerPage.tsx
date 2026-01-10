@@ -36,7 +36,7 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
     const [generatingSection, setGeneratingSection] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<'structured' | 'narrative' | 'legacy' | 'settings'>('narrative');
+    const [activeTab, setActiveTab] = useState<'legacy' | 'narrative' | 'structured' | 'settings'>('legacy');
     const [expandedWp, setExpandedWp] = useState<number | null>(0);
     const [fundingScheme, setFundingScheme] = useState<any>(null);
 
@@ -298,7 +298,12 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
         { key: 'relevance', label: 'Relevance', level: 0 },
         { key: 'partnership_arrangements', label: 'Partnership Arrangements', level: 0 },
         { key: 'impact', label: 'Impact', level: 0 },
-        { key: 'project_design_implementation', label: 'Project Design & Implementation', level: 0 }
+        { key: 'project_design_implementation', label: 'Project Design & Implementation', level: 0 },
+        { key: 'work_package_1', label: 'WP1: Management', level: 0 },
+        { key: 'work_package_2', label: 'WP2: Development', level: 0 },
+        { key: 'work_package_3', label: 'WP3: Implementation', level: 0 },
+        { key: 'work_package_4', label: 'WP4: Dissemination', level: 0 },
+        { key: 'eu_values', label: 'EU Values', level: 0 }
     ];
 
     let templateSections = fundingScheme?.template_json?.sections
@@ -380,16 +385,16 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
             <Tabs value={activeTab} onValueChange={(v: any) => setActiveTab(v)} className="w-full">
                 <div className="flex items-center justify-center mb-8">
                     <TabsList className="bg-white/5 border border-white/10 p-1 rounded-2xl">
-                        <TabsTrigger value="narrative" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                        <TabsTrigger value="legacy" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                            Full Report (Standard)
+                        </TabsTrigger>
+                        <TabsTrigger value="structured" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs opacity-60">
+                            Interactive Editor
+                        </TabsTrigger>
+                        <TabsTrigger value="narrative" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs opacity-60">
                             Narrative Structure
                         </TabsTrigger>
-                        <TabsTrigger value="structured" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                            Interative Editor
-                        </TabsTrigger>
-                        <TabsTrigger value="legacy" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
-                            Full Report (Legacy View)
-                        </TabsTrigger>
-                        <TabsTrigger value="settings" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground">
+                        <TabsTrigger value="settings" className="rounded-xl px-6 data-[state=active]:bg-primary data-[state=active]:text-primary-foreground text-xs opacity-60">
                             Settings
                         </TabsTrigger>
                     </TabsList>
@@ -865,30 +870,80 @@ export function ProposalViewerPage({ proposalId, onBack }: ProposalViewerPagePro
                 </TabsContent>
 
                 {/* Settings Tab */}
-                <TabsContent value="legacy" className="mt-0">
-                    <Card className="bg-white p-12 rounded-[32px] shadow-2xl text-black min-h-[1000px] border-none">
-                        <div className="max-w-4xl mx-auto space-y-12">
-                            <div className="border-b-4 border-black pb-8">
-                                <h1 className="text-5xl font-black uppercase tracking-tighter mb-4">{proposal.title}</h1>
-                                <p className="text-xl italic text-gray-600">Funding Proposal Report</p>
+                <TabsContent value="legacy" className="mt-0 space-y-8 pb-40">
+                    <Card className="bg-white p-12 md:p-20 rounded-[48px] shadow-2xl text-black min-h-[2000px] border-none selection:bg-blue-100">
+                        <div className="max-w-4xl mx-auto space-y-16">
+                            {/* Formal Letterhead Style */}
+                            <div className="border-b-8 border-black pb-12 space-y-6">
+                                <div className="flex justify-between items-start">
+                                    <Badge className="bg-black text-white px-4 py-1 rounded-none font-bold tracking-tighter">EU FUNDING PROPOSAL 2025</Badge>
+                                    <span className="text-xs font-mono uppercase text-gray-400">Ref: {proposal.id.split('-').pop()}</span>
+                                </div>
+                                <h1 className="text-6xl font-black uppercase tracking-tighter leading-none">{proposal.title}</h1>
+                                <div className="grid grid-cols-2 gap-8 pt-8">
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase text-gray-400 mb-1">Target Scheme</p>
+                                        <p className="font-bold text-sm">{fundingScheme?.name || 'Erasmus+ KA220'}</p>
+                                    </div>
+                                    <div>
+                                        <p className="text-[10px] font-black uppercase text-gray-400 mb-1">Total Requested</p>
+                                        <p className="font-bold text-sm text-blue-600">€{totalBudget.toLocaleString()}</p>
+                                    </div>
+                                </div>
                             </div>
 
-                            {expectedSections.map((s) => (
+                            {/* Executive Summary Section */}
+                            <section className="space-y-6">
+                                <h2 className="text-3xl font-black uppercase border-b-2 border-black pb-4">0. Executive Summary</h2>
+                                <div
+                                    className="prose prose-lg max-w-none prose-p:leading-relaxed text-gray-800"
+                                    dangerouslySetInnerHTML={{ __html: proposal.summary }}
+                                />
+                            </section>
+
+                            {expectedSections.map((s, idx) => (
                                 <section key={s.key} className="space-y-6">
-                                    <h2 className="text-3xl font-black uppercase border-b-2 border-gray-200 pb-2 flex items-center gap-4">
-                                        <span className="text-gray-300">#</span>
+                                    <h2 className="text-3xl font-black uppercase border-b-2 border-gray-100 pb-4 flex items-center gap-4">
+                                        <span className="text-gray-200">{idx + 1}.</span>
                                         {s.label}
                                     </h2>
                                     {dynamicSections[s.key] ? (
                                         <div
-                                            className="prose prose-lg max-w-none prose-headings:font-black prose-headings:uppercase prose-p:leading-relaxed"
+                                            className="prose prose-lg max-w-none prose-headings:font-black prose-headings:uppercase prose-p:leading-relaxed text-gray-800"
                                             dangerouslySetInnerHTML={{ __html: dynamicSections[s.key] }}
                                         />
                                     ) : (
-                                        <p className="text-gray-400 italic">No content generated for this section.</p>
+                                        <div className="p-8 bg-gray-50 border-2 border-dashed border-gray-200 rounded-2xl text-center">
+                                            <p className="text-gray-400 italic text-sm">Waiting for content generation for this section...</p>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                className="mt-4 text-xs hover:bg-black hover:text-white"
+                                                onClick={() => generateSection(s.key, s.label)}
+                                            >
+                                                Generate Now
+                                            </Button>
+                                        </div>
                                     )}
                                 </section>
                             ))}
+
+                            {/* Partner List Summary in Report */}
+                            <section className="space-y-6 pt-12 border-t-4 border-gray-100">
+                                <h2 className="text-3xl font-black uppercase border-b-2 border-black pb-4">Appendix A: Consortium Members</h2>
+                                <div className="grid grid-cols-1 gap-4">
+                                    {partnersArray.map((p: any, i: number) => (
+                                        <div key={i} className="flex gap-6 items-start p-6 bg-gray-50 rounded-2xl">
+                                            <div className="h-10 w-10 bg-black text-white flex items-center justify-center font-bold text-xs">{i + 1}</div>
+                                            <div>
+                                                <p className="font-black uppercase text-sm mb-1">{p.name}</p>
+                                                <p className="text-xs text-gray-500 italic mb-2">{p.isCoordinator ? 'Project Lead' : 'Partner'}</p>
+                                                <p className="text-xs leading-relaxed text-gray-600">{p.description}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </section>
                         </div>
                     </Card>
                 </TabsContent>
